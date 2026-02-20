@@ -28,7 +28,8 @@ function memory_bus.from_buffer(b: buffer): MemoryBus
 				return last_value
 			end
 
-			return buffer.readu8(b, address)
+			last_value = buffer.readu8(b, address)
+			return last_value
 		end,
 
 		write = function(address: number, value: number)

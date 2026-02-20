@@ -1,0 +1,7 @@
+*.cfg
+*.bin
+*.o
+*.map
+*.s
+*.sym
+test.luau
