@@ -2,6 +2,7 @@
 *.bin
 *.o
 *.map
+*.c
 *.s
 *.sym
 test.luau
