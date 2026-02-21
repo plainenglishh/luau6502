@@ -1,4 +1,7 @@
---- Opaque representation of a memory bus.
+--[=[
+	Opaque representation of a memory bus. You can construct this using the 
+	`mos6502.bus` library, or by implementing it yourself.
+]=]
 export type Bus = {
 	--[=[
 		Reads a value from memory.
@@ -16,6 +19,9 @@ export type Bus = {
 	write: (address: number, value: number) -> (),
 }
 
+--[=[
+	A memory region used by `mos6502.bus.from_map`.
+]=]
 export type MemoryRegion =
 	{
 		start: number,
@@ -28,22 +34,28 @@ export type MemoryRegion =
 		start: number,
 		size: number,
 		type: "io",
-		read: (rel_addr: number) -> number,
-		write: (rel_addr: number, value: number) -> (),
+		read: ((rel_addr: number) -> number)?,
+		write: ((rel_addr: number, value: number) -> ())?,
 	}
 
+--[=[
+	A memory map used by `mos6502.bus.from_map`.
+]=]
 export type MemoryMap = { MemoryRegion }
 
 local bus = {}
 
-function bus.mapped(map: MemoryMap): Bus
-	-- TODO: fix this!
+--[=[
+	Creates a `Bus` from a memory map.
+]=]
+function bus.from_map(map: MemoryMap): Bus
+	-- TODO! assert regions don't overlap.
 
 	local last_value = 0
 
 	local function find_region(addr: number): MemoryRegion?
 		for _, region in map do
-			if addr >= region.start and addr <= region.start + region.size then
+			if addr >= region.start and addr < region.start + region.size then
 				return region
 			end
 		end
@@ -65,6 +77,10 @@ function bus.mapped(map: MemoryMap): Bus
 
 				return buffer.readu8(region.buffer, rel_addr)
 			else
+				if not region.read then
+					return last_value
+				end
+
 				return region.read(rel_addr)
 			end
 		end,
@@ -87,21 +103,41 @@ function bus.mapped(map: MemoryMap): Bus
 
 				buffer.writeu8(region.buffer, rel_addr, value)
 			else
+				if not region.write then
+					return
+				end
+
 				region.write(rel_addr, value)
 			end
 		end,
 	}
 end
 
+--[=[
+	Creates a `Bus` that maps to a buffer.
+]=]
 function bus.from_buffer(b: buffer): Bus
-	return bus.mapped({
-		{
-			start = 0,
-			size = buffer.len(b),
-			type = "buffer",
-			buffer = b,
-		},
-	})
+	local last_value = 0
+	local len = buffer.len(b)
+
+	return {
+		read = function(addr: number): number
+			if addr >= len then
+				return last_value
+			end
+
+			last_value = buffer.readu8(b, addr)
+			return last_value
+		end,
+
+		write = function(addr: number, value: number)
+			if addr >= len then
+				return
+			end
+
+			buffer.writeu8(b, addr, value)
+		end,
+	}
 end
 
 return bus
