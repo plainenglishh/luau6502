@@ -1,10 +1,10 @@
 local bus = require("./bus")
-export type Bus = bus.Bus
+type Bus = bus.Bus
 
 local FLAG_N, FLAG_V, FLAG_U, FLAG_B, FLAG_D, FLAG_I, FLAG_Z, FLAG_C = 7, 6, 5, 4, 3, 2, 1, 0
 
-export type u8 = number
-export type u16 = number
+type u8 = number
+type u16 = number
 
 --- Table representing the internal state of a CPU.
 export type Cpu = {
