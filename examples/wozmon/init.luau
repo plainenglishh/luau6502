@@ -78,11 +78,11 @@ zune.task.spawn(function()
 	end
 end)
 
-local cpu = mos6502.cpu.create(bus)
+local cpu = mos6502.mos6502.create(bus)
 while zune.task.wait() do
 	if cpu.jammed then
 		print("\ncpu jammed")
 		break
 	end
-	mos6502.cpu.step(cpu, bus)
+	mos6502.mos6502.step(cpu, bus)
 end

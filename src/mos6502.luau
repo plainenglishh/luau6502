@@ -6,8 +6,8 @@ local FLAG_N, FLAG_V, FLAG_U, FLAG_B, FLAG_D, FLAG_I, FLAG_Z, FLAG_C = 7, 6, 5, 
 type u8 = number
 type u16 = number
 
---- Table representing the internal state of a CPU.
-export type Cpu = {
+--- Table representing the internal state of a Mos6502.
+export type Mos6502 = {
 	--- The accumulator.
 	A: u8,
 	--- The `X` register.
@@ -68,13 +68,13 @@ end
 --[=[
     Fetch the next byte, incrementing the program counter.
 ]=]
-local function fetch(cpu: Cpu, memory: Bus): u8
+local function fetch(cpu: Mos6502, memory: Bus): u8
 	local insn = memory.read(cpu.PC)
 	cpu.PC = ADD_U16(cpu.PC, 1)
 	return insn
 end
 
-local function fetch_u16(cpu: Cpu, memory: Bus): u16
+local function fetch_u16(cpu: Mos6502, memory: Bus): u16
 	return CONCAT_U16(fetch(cpu, memory), fetch(cpu, memory))
 end
 
@@ -89,7 +89,7 @@ end
 --[=[
     Updates the NZ processor flags based on the accumulator value.
 ]=]
-local function update_nz_flags(cpu: Cpu, based_on: number)
+local function update_nz_flags(cpu: Mos6502, based_on: number)
 	local p = cpu.P
 	p = bit32.replace(p, based_on >= 0x80 and 1 or 0, FLAG_N)
 	p = bit32.replace(p, based_on == 0 and 1 or 0, FLAG_Z)
@@ -104,7 +104,7 @@ type AddressingMode = "IMP" | "ACC" | "IMM" | "ABS" | "ABX" | "ABY" | "IND" | "Z
 
 	-1 indicates the accumulator.
 ]=]
-local function resolve_address(cpu: Cpu, memory: Bus, mode: AddressingMode): (u16, boolean)
+local function resolve_address(cpu: Mos6502, memory: Bus, mode: AddressingMode): (u16, boolean)
 	if mode == "ABS" then
 		local addr = fetch_u16(cpu, memory)
 		return addr, false
@@ -159,7 +159,7 @@ local function resolve_address(cpu: Cpu, memory: Bus, mode: AddressingMode): (u1
 end
 
 --- An address of -1 maps to the accumulator.
-local function store_value(cpu: Cpu, memory: Bus, addr: number, value: number)
+local function store_value(cpu: Mos6502, memory: Bus, addr: number, value: number)
 	if addr == -1 then
 		cpu.A = value
 		return
@@ -173,7 +173,7 @@ end
 
 	Similar to `store_value`, an address of -1 maps to the accumulator.
 ]=]
-local function load_value(cpu: Cpu, memory: Bus, mode_or_addr: AddressingMode | u16): (u8, boolean)
+local function load_value(cpu: Mos6502, memory: Bus, mode_or_addr: AddressingMode | u16): (u8, boolean)
 	if mode_or_addr == "IMP" then
 		return 0, false
 	elseif mode_or_addr == "ACC" then
@@ -197,24 +197,24 @@ local function load_value(cpu: Cpu, memory: Bus, mode_or_addr: AddressingMode | 
 end
 
 --- Pushes a value onto the stack.
-local function push_value(cpu: Cpu, memory: Bus, value: u8)
+local function push_value(cpu: Mos6502, memory: Bus, value: u8)
 	memory.write(0x0100 + cpu.S, value)
 	cpu.S = SUB_U8(cpu.S, 1)
 end
 
 --- Pops a value from the stack.
-local function pull_value(cpu: Cpu, memory: Bus): u8
+local function pull_value(cpu: Mos6502, memory: Bus): u8
 	cpu.S = ADD_U8(cpu.S, 1)
 	return memory.read(0x0100 + cpu.S)
 end
 
 --- Increments the cycle counter by `count`, and calls the cycle hook `count` times.
-local function cycle(cpu: Cpu, count: number)
+local function cycle(cpu: Mos6502, count: number)
 	cpu.cycles += count
 	--- call hook
 end
 
-local function handle_reset(cpu: Cpu, memory: Bus)
+local function handle_reset(cpu: Mos6502, memory: Bus)
 	cpu.A = 0
 	cpu.X = 0
 	cpu.Y = 0
@@ -228,7 +228,7 @@ local function handle_reset(cpu: Cpu, memory: Bus)
 	cpu.pending_reset = false
 end
 
-local function handle_interrupt(cpu: Cpu, memory: Bus, vector: u16, brk: boolean?)
+local function handle_interrupt(cpu: Mos6502, memory: Bus, vector: u16, brk: boolean?)
 	push_value(cpu, memory, bit32.rshift(cpu.PC, 8))
 	push_value(cpu, memory, bit32.band(cpu.PC, 0xFF))
 
@@ -244,10 +244,10 @@ local function handle_interrupt(cpu: Cpu, memory: Bus, vector: u16, brk: boolean
 end
 
 --- Returns the number of additional cycles took.
-type Operation = (cpu: Cpu, memory: Bus, mode: AddressingMode) -> number
+type Operation = (cpu: Mos6502, memory: Bus, mode: AddressingMode) -> number
 
 --- Helper for branch instructions
-local function branch_if(cpu: Cpu, memory: Bus, flag: number, set: boolean)
+local function branch_if(cpu: Mos6502, memory: Bus, flag: number, set: boolean)
 	local offset = REINTERPRET_SIGNED(fetch(cpu, memory))
 	local target = ADD_U16(cpu.PC, offset)
 	local extra_cycles = 0
@@ -265,40 +265,40 @@ end
 local ops = {
 	--[[ Load ]]
 	--
-	LDA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	LDA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value, page_crossed = load_value(cpu, memory, mode)
 		cpu.A = value
 		update_nz_flags(cpu, value)
 		return if page_crossed then 1 else 0
 	end,
 
-	LDX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	LDX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value, page_crossed = load_value(cpu, memory, mode)
 		cpu.X = value
 		update_nz_flags(cpu, value)
 		return if page_crossed then 1 else 0
 	end,
 
-	LDY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	LDY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value, page_crossed = load_value(cpu, memory, mode)
 		cpu.Y = value
 		update_nz_flags(cpu, value)
 		return if page_crossed then 1 else 0
 	end,
 
-	STA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	STA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		memory.write(addr, cpu.A)
 		return 0
 	end,
 
-	STX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	STX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		memory.write(addr, cpu.X)
 		return 0
 	end,
 
-	STY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	STY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		memory.write(addr, cpu.Y)
 		return 0
@@ -306,36 +306,36 @@ local ops = {
 
 	--[[ Trans ]]
 	--
-	TAX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TAX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.X = cpu.A
 		update_nz_flags(cpu, cpu.X)
 		return 0
 	end,
 
-	TAY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TAY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.Y = cpu.A
 		update_nz_flags(cpu, cpu.Y)
 		return 0
 	end,
 
-	TSX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TSX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.X = cpu.S
 		update_nz_flags(cpu, cpu.X)
 		return 0
 	end,
 
-	TXA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TXA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.A = cpu.X
 		update_nz_flags(cpu, cpu.A)
 		return 0
 	end,
 
-	TXS = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TXS = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.S = cpu.X
 		return 0
 	end,
 
-	TYA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	TYA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.A = cpu.Y
 		update_nz_flags(cpu, cpu.A)
 		return 0
@@ -343,29 +343,29 @@ local ops = {
 
 	--[[ Stack ]]
 	--
-	PHA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	PHA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		push_value(cpu, memory, cpu.A)
 		return 0
 	end,
 
-	PHP = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	PHP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		push_value(cpu, memory, cpu.P)
 		return 0
 	end,
 
-	PLA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	PLA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.A = pull_value(cpu, memory)
 		update_nz_flags(cpu, cpu.A)
 		return 0
 	end,
 
-	PLP = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	PLP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = pull_value(cpu, memory)
 		return 0
 	end,
 
 	--[[ Shift ]]
-	ASL = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	ASL = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local value = load_value(cpu, memory, addr)
 
@@ -377,7 +377,7 @@ local ops = {
 		return 0
 	end,
 
-	LSR = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	LSR = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local value = load_value(cpu, memory, addr)
 
@@ -389,7 +389,7 @@ local ops = {
 		return 0
 	end,
 
-	ROL = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	ROL = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local value = load_value(cpu, memory, addr)
 
@@ -402,7 +402,7 @@ local ops = {
 		return 0
 	end,
 
-	ROR = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	ROR = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local value = load_value(cpu, memory, addr)
 
@@ -416,14 +416,14 @@ local ops = {
 	end,
 
 	--[[ Logic ]]
-	AND = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	AND = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		cpu.A = bit32.band(value, cpu.A)
 		update_nz_flags(cpu, cpu.A)
 		return 0
 	end,
 
-	BIT = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BIT = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		cpu.P = SET_FLAG(cpu.P, FLAG_Z, bit32.band(cpu.A, value) == 0)
 		cpu.P = SET_FLAG(cpu.P, FLAG_N, bit32.extract(value, 7) == 1)
@@ -431,14 +431,14 @@ local ops = {
 		return 0
 	end,
 
-	EOR = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	EOR = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		cpu.A = bit32.bxor(value, cpu.A)
 		update_nz_flags(cpu, cpu.A)
 		return 0
 	end,
 
-	ORA = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	ORA = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		cpu.A = bit32.bor(value, cpu.A)
 		update_nz_flags(cpu, cpu.A)
@@ -446,7 +446,7 @@ local ops = {
 	end,
 
 	--[[ Arith ]]
-	ADC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	ADC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		local carry_in = GET_FLAG(cpu.P, FLAG_C) and 1 or 0
 
@@ -487,7 +487,7 @@ local ops = {
 		return 0
 	end,
 
-	CMP = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CMP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 
 		local result = SUB_U8(cpu.A, value)
@@ -497,7 +497,7 @@ local ops = {
 		return 0
 	end,
 
-	CPX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CPX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 
 		local result = bit32.band(cpu.X - value, 0xFF)
@@ -507,7 +507,7 @@ local ops = {
 		return 0
 	end,
 
-	CPY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CPY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 
 		local result = bit32.band(cpu.Y - value, 0xFF)
@@ -517,7 +517,7 @@ local ops = {
 		return 0
 	end,
 
-	SBC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	SBC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local value = load_value(cpu, memory, mode)
 		local carry_in = GET_FLAG(cpu.P, FLAG_C) and 1 or 0
 
@@ -555,7 +555,7 @@ local ops = {
 	end,
 
 	--[[ Inc ]]
-	DEC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	DEC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local result = SUB_U8(load_value(cpu, memory, addr), 1)
 		update_nz_flags(cpu, result)
@@ -563,19 +563,19 @@ local ops = {
 		return 0
 	end,
 
-	DEX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	DEX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.X = SUB_U8(cpu.X, 1)
 		update_nz_flags(cpu, cpu.X)
 		return 0
 	end,
 
-	DEY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	DEY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.Y = SUB_U8(cpu.Y, 1)
 		update_nz_flags(cpu, cpu.Y)
 		return 0
 	end,
 
-	INC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	INC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = resolve_address(cpu, memory, mode)
 		local result = ADD_U8(load_value(cpu, memory, addr), 1)
 		update_nz_flags(cpu, result)
@@ -583,20 +583,20 @@ local ops = {
 		return 0
 	end,
 
-	INX = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	INX = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.X = ADD_U8(cpu.X, 1)
 		update_nz_flags(cpu, cpu.X)
 		return 0
 	end,
 
-	INY = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	INY = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.Y = ADD_U8(cpu.Y, 1)
 		update_nz_flags(cpu, cpu.Y)
 		return 0
 	end,
 
 	--[[ Ctrl ]]
-	BRK = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BRK = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		if cpu.pending_irq and not GET_FLAG(cpu.P, FLAG_I) then
 			return -7 -- Doesn't run!
 		end
@@ -605,7 +605,7 @@ local ops = {
 		return -7 -- Horrible! but `handle_interrupt` cycles for us!
 	end,
 
-	JMP = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	JMP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		--- special handling because of IND wrap bug
 		if mode == "ABS" then
 			cpu.PC = fetch_u16(cpu, memory)
@@ -620,7 +620,7 @@ local ops = {
 		return 0
 	end,
 
-	JSR = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	JSR = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		local addr = fetch_u16(cpu, memory)
 
 		local ret = SUB_U16(cpu.PC, 1)
@@ -631,97 +631,97 @@ local ops = {
 		return 0
 	end,
 
-	RTI = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	RTI = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(pull_value(cpu, memory), FLAG_U, true)
 		cpu.PC = CONCAT_U16(pull_value(cpu, memory), pull_value(cpu, memory))
 		return 0
 	end,
 
-	RTS = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	RTS = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.PC = ADD_U16(CONCAT_U16(pull_value(cpu, memory), pull_value(cpu, memory)), 1)
 		return 0
 	end,
 
 	--[[ Branch ]]
-	BCC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BCC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_C, false)
 	end,
 
-	BCS = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BCS = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_C, true)
 	end,
 
-	BEQ = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BEQ = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_Z, true)
 	end,
 
-	BMI = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BMI = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_N, true)
 	end,
 
-	BNE = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BNE = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_Z, false)
 	end,
 
-	BPL = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BPL = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_N, false)
 	end,
 
-	BVC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BVC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_V, false)
 	end,
 
-	BVS = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	BVS = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return branch_if(cpu, memory, FLAG_V, true)
 	end,
 
 	--[[ Flags ]]
 	--
-	CLC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CLC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_C, false)
 		return 0
 	end,
 
-	CLD = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CLD = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_D, false)
 		return 0
 	end,
 
-	CLI = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CLI = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_I, false)
 		return 0
 	end,
 
-	CLV = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	CLV = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_V, false)
 		return 0
 	end,
 
-	SEC = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	SEC = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_C, true)
 		return 0
 	end,
 
-	SED = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	SED = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_D, true)
 		return 0
 	end,
 
-	SEI = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	SEI = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.P = SET_FLAG(cpu.P, FLAG_I, true)
 		return 0
 	end,
 
 	--[[ Kill ]]
 	--
-	JAM = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	JAM = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		cpu.jammed = true
 		return 0
 	end,
 
 	--[[ Nop ]]
 	--
-	NOP = function(cpu: Cpu, memory: Bus, mode: AddressingMode): number
+	NOP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
 		return 0
 	end,
 }
@@ -1145,9 +1145,9 @@ local instructions: { [number]: InstructionInfo } = {
 	[0x2C] = { opcode = 0x2C, mnemonic = "BIT", operation = ops.BIT, mode = "ABS", cycles = 4, illegal = false },
 }
 
-local cpu = {}
+local mos6502 = {}
 
-function cpu.create(memory: Bus): Cpu
+function mos6502.create(memory: Bus): Mos6502
 	local cpu = {
 		A = 0,
 		X = 0,
@@ -1173,52 +1173,52 @@ end
 --[=[
 	Steps a single instruction.
 ]=]
-function cpu.step(cpu: Cpu, memory: Bus)
-	if cpu.pending_reset then
-		handle_reset(cpu, memory)
+function mos6502.step(self: Mos6502, memory: Bus)
+	if self.pending_reset then
+		handle_reset(self, memory)
 		return
 	end
 
-	if cpu.jammed then
+	if self.jammed then
 		return
 	end
 
-	if cpu.pending_nmi then
-		handle_interrupt(cpu, memory, 0xFFFA)
-		cpu.pending_nmi = false
+	if self.pending_nmi then
+		handle_interrupt(self, memory, 0xFFFA)
+		self.pending_nmi = false
 		return
 	end
 
-	if cpu.pending_irq and not GET_FLAG(cpu.P, FLAG_I) then
-		handle_interrupt(cpu, memory, 0xFFFE)
-		cpu.pending_irq = false
+	if self.pending_irq and not GET_FLAG(self.P, FLAG_I) then
+		handle_interrupt(self, memory, 0xFFFE)
+		self.pending_irq = false
 		return
 	end
 
-	local opcode = fetch(cpu, memory)
+	local opcode = fetch(self, memory)
 	local insn = instructions[opcode]
 	if not insn then
 		error(`opcode 0x{string.format("%02X", opcode)} not implemented`)
 	end
 
-	local additional_cycles = insn.operation(cpu, memory, insn.mode)
-	cycle(cpu, insn.cycles + additional_cycles)
+	local additional_cycles = insn.operation(self, memory, insn.mode)
+	cycle(self, insn.cycles + additional_cycles)
 end
 
-function cpu.reset(cpu: Cpu)
-	cpu.pending_reset = true
+function mos6502.reset(self: Mos6502)
+	self.pending_reset = true
 end
 
-function cpu.interrupt(cpu: Cpu, type: "irq" | "nmi")
+function mos6502.interrupt(self: Mos6502, type: "irq" | "nmi")
 	if type == "irq" then
-		cpu.pending_irq = true
+		self.pending_irq = true
 	elseif type == "nmi" then
-		cpu.pending_nmi = true
+		self.pending_nmi = true
 	end
 end
 
-function cpu.status(cpu: Cpu): string
-	return string.format("pc=0x%04x", cpu.PC)
+function mos6502.status(self: Mos6502): string
+	return string.format("pc=0x%04x", self.PC)
 end
 
-return cpu
+return mos6502

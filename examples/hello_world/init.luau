@@ -21,12 +21,12 @@ local bus = mos6502.bus.from_map({
 	},
 })
 
-local cpu = mos6502.cpu.create(bus)
+local cpu = mos6502.mos6502.create(bus)
 
 while true do
 	if cpu.jammed then
 		print("cpu jammed")
 		break
 	end
-	mos6502.cpu.step(cpu, bus)
+	mos6502.mos6502.step(cpu, bus)
 end
