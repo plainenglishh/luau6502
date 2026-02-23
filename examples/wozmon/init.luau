@@ -11,7 +11,7 @@ local bus = mos6502.bus.from_map({
 	{
 		type = "buffer",
 		start = 0x0000,
-		size = 0x5000,
+		size = 0xD000,
 		mode = "ram",
 		buffer = buffer.create(0x5000),
 	},
@@ -49,6 +49,13 @@ local bus = mos6502.bus.from_map({
 				return
 			end
 		end,
+	},
+	{
+		type = "buffer",
+		start = 0xE000,
+		size = 4096,
+		mode = "rom",
+		buffer = zune.fs.readFile("examples/wozmon/BASIC.bin", true),
 	},
 	{
 		type = "buffer",
