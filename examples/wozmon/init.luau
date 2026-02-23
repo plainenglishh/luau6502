@@ -6,7 +6,6 @@ local PORT_B = 2
 local CONTROL_B = 3
 
 local key_buffer: { number } = {}
-local ready = true
 
 local bus = mos6502.bus.from_map({
 	{
@@ -24,7 +23,6 @@ local bus = mos6502.bus.from_map({
 			if addr == PORT_A then
 				local key = table.remove(key_buffer, 1)
 				if not key then
-					ready = false
 					return 0
 				end
 
@@ -61,8 +59,6 @@ local bus = mos6502.bus.from_map({
 	},
 })
 
-local map_keycodes = {}
-
 zune.io.terminal.enableRawMode()
 zune.task.spawn(function()
 	while true do
@@ -82,5 +78,4 @@ while zune.task.wait() do
 		break
 	end
 	mos6502.cpu.step(cpu, bus)
-	--print(string.format("ran pc=0x%02X", cpu.PC))
 end
