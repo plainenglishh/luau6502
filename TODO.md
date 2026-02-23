@@ -10,6 +10,6 @@
   - [ ] Calculate flags only in the instructions that need them, store the last
         result instead.
   - [ ] Inline the instruction dispatch, instead of using the weird
-        ops/instructions table we use now
+        ops/instructions table we use now (use binary tree!)
   - [ ] (micro) Increment PC by instruction length
 - [ ] (v2) step per cycle? (split instructions into micro-ops)
