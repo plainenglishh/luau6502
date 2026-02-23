@@ -64,6 +64,7 @@ function bus.from_map(map: MemoryMap): Bus
 
 	return {
 		read = function(addr: number): number
+			--print(string.format("attempt to read 0x%04X", addr))
 			local region = find_region(addr)
 			if not region then
 				return last_value
@@ -86,6 +87,7 @@ function bus.from_map(map: MemoryMap): Bus
 		end,
 
 		write = function(addr: number, value: number)
+			--print(string.format("attempt to write 0x%02X to 0x%04X", value, addr))
 			local region = find_region(addr)
 			if not region then
 				return

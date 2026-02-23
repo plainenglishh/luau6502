@@ -1,5 +1,3 @@
-local fs = require("@lune/fs")
-local stdio = require("@lune/stdio")
 local mos6502 = require("../src")
 
 local bus = mos6502.bus.from_map({
@@ -11,7 +9,7 @@ local bus = mos6502.bus.from_map({
 			return 0
 		end,
 		write = function(addr, value)
-			stdio.write(string.char(value))
+			zune.io.stdout:write(string.char(value))
 		end,
 	},
 	{
@@ -19,7 +17,7 @@ local bus = mos6502.bus.from_map({
 		start = 0xFF00,
 		size = 256,
 		mode = "rom",
-		buffer = buffer.fromstring(fs.readFile("examples/hello_world/hello_world.bin")),
+		buffer = zune.fs.readFile("examples/hello_world/hello_world.bin", true),
 	},
 })
 

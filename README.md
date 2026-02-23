@@ -1,4 +1,4 @@
-# Mos6502
+# luau6502
 
 **WARNING: This is mostly untested.**
 

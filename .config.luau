@@ -4,8 +4,6 @@ return {
 		lints = {
 			LocalShadow = false,
 		},
-		aliases = {
-			lune = "~/.lune/.typedefs/0.10.4/",
-		},
+		aliases = {},
 	},
 }
