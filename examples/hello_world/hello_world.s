@@ -1,3 +1,4 @@
+.PC02
 .segment "CODE"
 .org $FF00
 
@@ -12,7 +13,7 @@ print_loop:
     jmp print_loop      ; go back
 
 done:
-    .byte $02           ; jam
+    stp
 
 msg: 
     .asciiz "HELLO, WORLD!"
