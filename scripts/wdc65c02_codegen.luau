@@ -13,12 +13,12 @@ local Wdc65c02 = require("../src/Wdc65c02")
     `set_p: (u8) -> ()`
     `push: (u8) -> ()`
     `pull: () -> u8`
-    `CONCAT_U16: (lo: u8, hi: u8) -> u16`
-    `ADD_U8: (a: u8, b: u8) -> u8`
-    `SUB_U8: (a: u8, b: u8) -> u8`
-    `ADD_U16: (a: u16, b: u16) -> u16`
-    `SUB_U16: (a: u16, b: u16) -> u16`
-    `SAME_PAGE: (a: u16, b: u16) -> boolean`
+    `concat_u16: (lo: u8, hi: u8) -> u16`
+    `add_u8: (a: u8, b: u8) -> u8`
+    `sub_u8: (a: u8, b: u8) -> u8`
+    `add_u16: (a: u16, b: u16) -> u16`
+    `sub_u16: (a: u16, b: u16) -> u16`
+    `same_page: (a: u16, b: u16) -> boolean`
     `cycles_taken: number`
 
     Furthermore, the following values are made available by the address mode stub:
@@ -32,14 +32,15 @@ local Wdc65c02 = require("../src/Wdc65c02")
     call), the code to get it's value (by dereferencing memory) isn't emitted.
 ]]
 
-local BINARY_SEARCH = false
+local BINARY_SEARCH = true
+local COMPACT = true
 
 local MODES: { [string]: string } = {
 	IMP = "",
 	ACC = [[
 local value = A
-local address = nil -- Macroed to A
-local base_address = nil -- Shouldn't be used.
+local address = nil
+local base_address = nil
 ]],
 	IMM = [[
 local value = fetch()
@@ -47,32 +48,32 @@ local address = nil
 local base_address = nil
 ]],
 	ABS = [[
-local base_address = CONCAT_U16(fetch(), fetch())
+local base_address = concat_u16(fetch(), fetch())
 local address = base_address
 ]],
 	ABX = [[
-local base_address = CONCAT_U16(fetch(), fetch())
-local address = ADD_U16(base_address, X)
-if not SAME_PAGE(base_address, address) then
+local base_address = concat_u16(fetch(), fetch())
+local address = add_u16(base_address, X)
+if not same_page(base_address, address) then
     cycles_taken += 1
 end
 ]],
 	ABY = [[
-local base_address = CONCAT_U16(fetch(), fetch())
-local address = ADD_U16(base_address, Y)
-if not SAME_PAGE(base_address, address) then
+local base_address = concat_u16(fetch(), fetch())
+local address = add_u16(base_address, Y)
+if not same_page(base_address, address) then
     cycles_taken += 1
 end
 ]],
 	IND = [[
-local ptr = CONCAT_U16(fetch(), fetch())
-local base_address = CONCAT_U16(read(ptr), read(ADD_U16(ptr, 1)))
+local ptr = concat_u16(fetch(), fetch())
+local base_address = concat_u16(read(ptr), read(add_u16(ptr, 1)))
 local address = base_address
 ]],
 	IAX = [[
-local base_ptr = CONCAT_U16(fetch(), fetch())
-local indexed_ptr = ADD_U16(base_ptr, X)
-local address = CONCAT_U16(read(indexed_ptr), read(ADD_U16(indexed_ptr, 1)))
+local base_ptr = concat_u16(fetch(), fetch())
+local indexed_ptr = add_u16(base_ptr, X)
+local address = concat_u16(read(indexed_ptr), read(add_u16(indexed_ptr, 1)))
 local base_address = base_ptr
 ]],
 	ZP0 = [[
@@ -81,36 +82,35 @@ local address = base_address
 ]],
 	ZPX = [[
 local base_address = fetch()
-local address = ADD_U8(base_address, X)
+local address = add_u8(base_address, X)
 ]],
 	ZPY = [[
 local base_address = fetch()
-local address = ADD_U8(base_address, Y)
+local address = add_u8(base_address, Y)
 ]],
 	ZPI = [[
 local ptr = fetch()
-local base_address = CONCAT_U16(read(ptr), read(ADD_U8(ptr, 1)))
+local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
 local address = base_address
 ]],
 	IZX = [[
-local ptr = ADD_U8(fetch(), X)
-local base_address = CONCAT_U16(read(ptr), read(ADD_U8(ptr, 1)))
+local ptr = add_u8(fetch(), X)
+local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
 local address = base_address
 
 ]],
 	IZY = [[
 local ptr = fetch()
-local base_address = CONCAT_U16(read(ptr), read(ADD_U8(ptr, 1)))
-local address = ADD_U16(base_address, Y)
-if not SAME_PAGE(base_address, address) then
+local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
+local address = add_u16(base_address, Y)
+if not same_page(base_address, address) then
     cycles_taken += 1
 end
 ]],
 	REL = [[
-local offset = REINTERPRET_SIGNED(fetch())
+local offset = reinterpret_signed(fetch())
 local base_address = PC
-local address = ADD_U16(base_address, offset)
--- extra cycles should be handled by the operation
+local address = add_u16(base_address, offset)
 ]],
 }
 
@@ -131,8 +131,8 @@ local bit_offset = %d
 local rel = if offset > 127 then offset - 256 else offset
     
 local base_address = zp_addr
-local value = read(zp_addr) -- This is required for the bit test
-local address = ADD_U16(PC, rel) -- PC is now at the start of the next instruction
+local value = read(zp_addr)
+local address = add_u16(PC, rel)
 ]],
 		i
 	)
@@ -221,7 +221,7 @@ write(address, result)
 N, Z = result, result
 ]],
 	LSR = [[
-C = bit32.band(value, 0x01) ~= 0 -- Bit 0 goes into Carry
+C = bit32.band(value, 0x01) ~= 0
 local result = bit32.rshift(value, 1)
 write(address, result)
 N, Z = result, result
@@ -300,17 +300,17 @@ else
 end
 ]],
 	CMP = [[
-local result = SUB_U8(A, value)
+local result = sub_u8(A, value)
 N, Z = result, result
 C = value <= A
 ]],
 	CPX = [[
-local result = SUB_U8(X, value)
+local result = sub_u8(X, value)
 N, Z = result, result
 C = value <= X
 ]],
 	CPY = [[
-local result = SUB_U8(Y, value)
+local result = sub_u8(Y, value)
 N, Z = result, result
 C = value <= Y
 ]],
@@ -340,110 +340,110 @@ C = value <= Y
         
         C = binary_diff >= 0
         A = bit32.band(hi + bit32.band(lo, 0x0F), 0xFF)
-        N, Z = A, A -- 65C02: N and Z are valid!
+        N, Z = A, A
     end
 ]],
 	DEC = [[
-local result = SUB_U8(value, 1)
+local result = sub_u8(value, 1)
 N, Z = result, result
 write(address, result)
 ]],
 	DEX = [[
-X = SUB_U8(X, 1)
+X = sub_u8(X, 1)
 N, Z = X, X
 ]],
 	DEY = [[
-Y = SUB_U8(Y, 1)
+Y = sub_u8(Y, 1)
 N, Z = Y, Y
 ]],
 	INC = [[
-local result = ADD_U8(value, 1)
+local result = add_u8(value, 1)
 N, Z = result, result
 write(address, result)
 ]],
 	INX = [[
-X = ADD_U8(X, 1)
+X = add_u8(X, 1)
 N, Z = X, X
 ]],
 	INY = [[
-Y = ADD_U8(Y, 1)
+Y = add_u8(Y, 1)
 N, Z = Y, Y
 ]],
 	BRA = [[
-if not SAME_PAGE(base_address, address) then
+if not same_page(base_address, address) then
     cycles_taken += 1
 end
 PC = address
 ]],
 	BRK = [[
 if self._irq and not I then
-    continue -- back to start! cycles arent added
+    continue
 end
 
 handle_interrupt(0xFFFE, true)
-cycles_taken -= 7 -- Horrible! but `handle_interrupt` cycles for us! It is what it is.
+cycles_taken -= 7
 ]],
 	JMP = [[
 PC = address
 ]],
 	JSR = [[
-local return_address = SUB_U16(PC, 1)
+local return_address = sub_u16(PC, 1)
 push(bit32.rshift(return_address, 8))
 push(bit32.band(return_address, 0xFF))
 PC = address
 ]],
 	RTI = [[
 set_p(pull())
-PC = CONCAT_U16(pull(), pull())
+PC = concat_u16(pull(), pull())
 ]],
 	RTS = [[
-PC = ADD_U16(CONCAT_U16(pull(), pull()), 1)
+PC = add_u16(concat_u16(pull(), pull()), 1)
 ]],
 	BCC = [[
 if not C then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BCS = [[
 if C then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BEQ = [[
 if Z == 0 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BMI = [[
 if N >= 0x80 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BNE = [[
 if Z ~= 0 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BPL = [[
 if N < 0x80 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BVC = [[
 if not V then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BVS = [[
 if V then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
@@ -478,13 +478,13 @@ write(address, result)
 ]],
 	BBS = [[
 if bit32.extract(value, bit_offset) == 1 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BBR = [[
 if bit32.extract(value, bit_offset) == 0 then
-    cycles_taken += if SAME_PAGE(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
@@ -526,7 +526,9 @@ for _, instruction: Wdc65c02.InstructionInfo in Wdc65c02.INSTRUCTIONS do
 		op = op:gsub("write%(address%s*,%s*(.-)%)", "A = %1")
 	end
 
-	impl ..= `--[[ {instruction.mnemonic}_{instruction.mode} ]]--\n`
+	if not COMPACT then
+		impl ..= `--[[ {instruction.mnemonic}_{instruction.mode} ]]\n`
+	end
 	impl ..= `cycles_taken += {instruction.base_cycles}\n`
 	impl ..= mode
 	impl ..= op
@@ -539,6 +541,7 @@ local function indent_str(str: string, level: number): string
 	return spaces .. str:gsub("\n", "\n" .. spaces)
 end
 
+local out = ""
 if BINARY_SEARCH then
 	local function generate_tree(low: number, high: number, indent: number): string
 		local tabs = string.rep("    ", indent)
@@ -559,9 +562,8 @@ if BINARY_SEARCH then
 		end
 	end
 
-	zune.io.stdout:write(generate_tree(0, 255, 0))
+	out = generate_tree(0, 255, 0)
 else
-	local out = ""
 	for i = 0, 255 do
 		if i == 0 then
 			out ..= "if "
@@ -577,5 +579,10 @@ else
 		out ..= "\n"
 	end
 	out ..= 'else\n    error("worm")\nend'
-	zune.io.stdout:write(out)
 end
+
+if COMPACT then
+	out = out:gsub("\n", " "):gsub("%s%s*", " ")
+end
+out = "--stylua: ignore\n" .. out
+zune.io.stdout:write(out)
