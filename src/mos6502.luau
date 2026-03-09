@@ -28,7 +28,33 @@ export type Mos6502 = {
 	pending_nmi: boolean,
 	--- Whether an IRQ is pending.
 	pending_irq: boolean,
+	--- Trap handler
+	on_trap: TrapHandler,
 }
+
+export type TrapInfo =
+	{
+		id: "stack_overflow",
+		state: Mos6502,
+	}
+	| {
+		id: "illegal_opcode",
+		state: Mos6502,
+		opcode: number,
+	}
+	| {
+		id: "memory_access_violation",
+		state: Mos6502,
+		address: number,
+		type: "read" | "write",
+	}
+
+export type TrapHandler = (info: TrapInfo) -> ()
+local DEFAULT_TRAP_HANDLER = error :: TrapHandler
+
+local function trap(cpu: Mos6502, info: TrapInfo)
+	cpu.on_trap(info)
+end
 
 --- Returns whether `base` and `addr` are in the same 256-byte page.
 local function SAME_PAGE(base: u16, addr: u16): boolean
@@ -197,8 +223,9 @@ end
 --- Pushes a value onto the stack.
 local function push_value(cpu: Mos6502, memory: Bus, value: u8)
 	if cpu.S == -1 then
-		error({
+		trap(cpu, {
 			id = "stack_overflow",
+			state = table.clone(cpu),
 		})
 	end
 
@@ -211,6 +238,10 @@ end
 
 --- Pops a value from the stack.
 local function pull_value(cpu: Mos6502, memory: Bus): u8
+	if cpu.S == -1 then -- clear overflow marker
+		cpu.S = 255
+	end
+
 	cpu.S = ADD_U8(cpu.S, 1)
 	return memory.read(0x0100 + cpu.S)
 end
@@ -1146,7 +1177,7 @@ local instructions: { [number]: InstructionInfo } = {
 
 local mos6502 = {}
 
-function mos6502.create(memory: Bus): Mos6502
+function mos6502.create(memory: Bus, on_trap: TrapHandler?): Mos6502
 	local cpu = {
 		A = 0,
 		X = 0,
@@ -1155,26 +1186,19 @@ function mos6502.create(memory: Bus): Mos6502
 		S = 0,
 		PC = 0,
 
+		cycles = 0,
+
 		pending_reset = false,
 		pending_nmi = false,
 		pending_irq = false,
 
-		cycles = 0,
+		on_trap = on_trap or DEFAULT_TRAP_HANDLER,
 	}
 
 	handle_reset(cpu, memory)
 
 	return cpu
 end
-
-export type StepError =
-	{
-		id: "stack_overflow",
-	}
-	| {
-		id: "illegal_opcode",
-		opcode: number,
-	}
 
 --[=[
 	Steps a single instruction.
@@ -1200,8 +1224,9 @@ function mos6502.step(self: Mos6502, memory: Bus)
 	local opcode = fetch(self, memory)
 	local insn = instructions[opcode]
 	if not insn then
-		error({
+		trap(self, {
 			id = "illegal_opcode",
+			state = table.clone(self),
 			opcode = opcode,
 		})
 	end
