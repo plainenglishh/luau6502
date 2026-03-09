@@ -1,26 +1,25 @@
-local Wdc65c02 = require("../src/Wdc65c02v2")
+local Wdc65c02 = require("../src/Wdc65c02")
 
 --[[
     This program generates the instruction implementations for the wdc65c02
     instruction set.
 
     The following values are always available:
-    
-	`self: any`
-	`A: u8`, `X: u8`, `Y: u8`, `S: u8`, `PC: u16`
+    `A: u8`, `X: u8`, `Y: u8`, `S: u8`, `PC: u16`
     `NZ: u8`, `V: boolean`, `B: boolean`, `D: boolean`, `I: boolean`, `C: boolean`
     `read: (u16) -> u8`
     `write: (u16, u16) -> ()`
     `get_p: () -> u8`
     `set_p: (u8) -> ()`
+    `push: (u8) -> ()`
+    `pull: () -> u8`
     `concat_u16: (lo: u8, hi: u8) -> u16`
     `add_u8: (a: u8, b: u8) -> u8`
     `sub_u8: (a: u8, b: u8) -> u8`
     `add_u16: (a: u16, b: u16) -> u16`
     `sub_u16: (a: u16, b: u16) -> u16`
     `same_page: (a: u16, b: u16) -> boolean`
-    `cycles: number`
-	`should_break: boolean`
+    `cycles_taken: number`
 
     Furthermore, the following values are made available by the address mode stub:
 
@@ -33,35 +32,8 @@ local Wdc65c02 = require("../src/Wdc65c02v2")
     call), the code to get it's value (by dereferencing memory) isn't emitted.
 ]]
 
-local PRELUDE = [[
-local function same_page(base: number, addr: number): boolean
-	return bit32.band(base, 0xFF00) == bit32.band(addr, 0xFF00)
-end
-
-local function add_u8(a: number, b: number): number
-	return bit32.band(a + b, 0xFF)
-end
-
-local function sub_u8(a: number, b: number): number
-	return bit32.band(a - b, 0xFF)
-end
-
-local function add_u16(a: number, b: number): number
-	return bit32.band(a + b, 0xFFFF)
-end
-
-local function sub_u16(a: number, b: number): number
-	return bit32.band(a - b, 0xFFFF)
-end
-
-local function reinterpret_signed(byte: number): number
-	return byte < 0x80 and byte or byte - 0x100
-end
-
-local function concat_u16(lo: number, hi: number): number
-	return bit32.bor(bit32.lshift(hi, 8), lo)
-end
-]]
+local BINARY_SEARCH = false
+local COMPACT = true
 
 local MODES: { [string]: string } = {
 	IMP = "",
@@ -71,100 +43,72 @@ local address = nil
 local base_address = nil
 ]],
 	IMM = [[
-local value = read(PC)
-PC += 1
+local value = fetch()
 local address = nil
 local base_address = nil
 ]],
 	ABS = [[
-local lo = read(PC)
-PC += 1
-local hi = read(PC)
-PC += 1
-local base_address = concat_u16(lo, hi)
+local base_address = concat_u16(fetch(), fetch())
 local address = base_address
 ]],
 	ABX = [[
-local lo = read(PC)
-PC += 1
-local hi = read(PC)
-PC += 1
-local base_address = concat_u16(lo, hi)
+local base_address = concat_u16(fetch(), fetch())
 local address = add_u16(base_address, X)
 if not same_page(base_address, address) then
-    cycles += 1
+    cycles_taken += 1
 end
 ]],
 	ABY = [[
-local lo = read(PC)
-PC += 1
-local hi = read(PC)
-PC += 1
-local base_address = concat_u16(lo, hi)
+local base_address = concat_u16(fetch(), fetch())
 local address = add_u16(base_address, Y)
 if not same_page(base_address, address) then
-    cycles += 1
+    cycles_taken += 1
 end
 ]],
 	IND = [[
-local lo = read(PC)
-PC += 1
-local hi = read(PC)
-PC += 1
-local ptr = concat_u16(lo, hi)
+local ptr = concat_u16(fetch(), fetch())
 local base_address = concat_u16(read(ptr), read(add_u16(ptr, 1)))
 local address = base_address
 ]],
 	IAX = [[
-local lo = read(PC)
-PC += 1
-local hi = read(PC)
-PC += 1
-local base_ptr = concat_u16(lo, hi)
+local base_ptr = concat_u16(fetch(), fetch())
 local indexed_ptr = add_u16(base_ptr, X)
 local address = concat_u16(read(indexed_ptr), read(add_u16(indexed_ptr, 1)))
 local base_address = base_ptr
 ]],
 	ZP0 = [[
-local base_address = read(PC)
-PC += 1
+local base_address = fetch()
 local address = base_address
 ]],
 	ZPX = [[
-local base_address = read(PC)
-PC += 1
+local base_address = fetch()
 local address = add_u8(base_address, X)
 ]],
 	ZPY = [[
-local base_address = read(PC)
-PC += 1
+local base_address = fetch()
 local address = add_u8(base_address, Y)
 ]],
 	ZPI = [[
-local ptr = read(PC)
-PC += 1
+local ptr = fetch()
 local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
 local address = base_address
 ]],
 	IZX = [[
-local ptr = add_u8(read(PC), X)
-PC += 1
+local ptr = add_u8(fetch(), X)
 local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
 local address = base_address
 
 ]],
 	IZY = [[
-local ptr = read(PC)
-PC += 1
+local ptr = fetch()
 local base_address = concat_u16(read(ptr), read(add_u8(ptr, 1)))
 local address = add_u16(base_address, Y)
 if not same_page(base_address, address) then
-    cycles += 1
+    cycles_taken += 1
 end
 ]],
 	REL = [[
-local offset = reinterpret_signed(read(PC))
-PC += 1
+local offset = reinterpret_signed(fetch())
 local base_address = PC
 local address = add_u16(base_address, offset)
 ]],
@@ -173,8 +117,7 @@ local address = add_u16(base_address, offset)
 for i = 0, 7 do
 	MODES["ZPB" .. i] = string.format(
 		[[
-local address = read(PC)
-PC += 1
+local address = fetch()
 local bit_offset = %d
 ]],
 		i
@@ -182,10 +125,8 @@ local bit_offset = %d
 
 	MODES["ZPR" .. i] = string.format(
 		[[
-local zp_addr = read(PC)
-PC += 1
-local offset = read(PC)
-PC += 1
+local zp_addr = fetch()
+local offset = fetch()
 local bit_offset = %d
 local rel = if offset > 127 then offset - 256 else offset
     
@@ -337,7 +278,7 @@ if not D then
     A = bit32.band(result, 0xFF)
     N, Z = A, A
 else
-    cycles += 1
+    cycles_taken += 1
     local al = bit32.band(A, 0x0F)
     local ah = bit32.band(A, 0xF0)
     local vl = bit32.band(value, 0x0F)
@@ -382,7 +323,7 @@ C = value <= Y
         A = bit32.band(result, 0xFF)
         N, Z = A, A
     else
-        cycles += 1
+        cycles_taken += 1
         local al = bit32.band(A, 0x0F)
         local ah = bit32.band(A, 0xF0)
         local vl = bit32.band(value, 0x0F)
@@ -430,7 +371,7 @@ N, Z = Y, Y
 ]],
 	BRA = [[
 if not same_page(base_address, address) then
-    cycles += 1
+    cycles_taken += 1
 end
 PC = address
 ]],
@@ -440,7 +381,7 @@ if self._irq and not I then
 end
 
 handle_interrupt(0xFFFE, true)
-cycles -= 7
+cycles_taken -= 7
 ]],
 	JMP = [[
 PC = address
@@ -460,49 +401,49 @@ PC = add_u16(concat_u16(pull(), pull()), 1)
 ]],
 	BCC = [[
 if not C then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BCS = [[
 if C then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BEQ = [[
 if Z == 0 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BMI = [[
 if N >= 0x80 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BNE = [[
 if Z ~= 0 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BPL = [[
 if N < 0x80 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BVC = [[
 if not V then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BVS = [[
 if V then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
@@ -537,39 +478,25 @@ write(address, result)
 ]],
 	BBS = [[
 if bit32.extract(value, bit_offset) == 1 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	BBR = [[
 if bit32.extract(value, bit_offset) == 0 then
-    cycles += if same_page(base_address, address) then 1 else 2
+    cycles_taken += if same_page(base_address, address) then 1 else 2
     PC = address
 end
 ]],
 	WAI = [[
 self._waiting = true
-should_break = true
+break
 ]],
 	STP = [[
 self._stopped = true
-should_break = true
+break
 ]],
 	NOP = "",
-}
-
-local CATEGORIES: { [string]: { string } } = {
-	load = { "LDA", "LDX", "LDY", "STA", "STX", "STY", "STZ" },
-	transfer = { "TAX", "TAY", "TSX", "TXA", "TXS", "TYA" },
-	stack = { "PHA", "PHP", "PHX", "PHY", "PLA", "PLP", "PLX", "PLY" },
-	shift = { "ASL", "LSR", "ROL", "ROR" },
-	logic = { "AND", "BIT", "EOR", "ORA", "TRB", "TSB" },
-	arithmetic = { "ADC", "CMP", "CPX", "CPY", "SBC" },
-	increment = { "DEC", "DEX", "DEY", "INC", "INX", "INY" },
-	control = { "BRK", "JMP", "JSR", "RTI", "RTS" },
-	branch = { "BRA", "BCC", "BCS", "BEQ", "BMI", "BNE", "BPL", "BVC", "BVS" },
-	flags = { "CLC", "CLD", "CLI", "CLV", "SEC", "SED", "SEI" },
-	other = { "SMB", "RMB", "BBS", "BBR", "WAI", "STP" },
 }
 
 local implementations = {}
@@ -599,7 +526,10 @@ for _, instruction: Wdc65c02.InstructionInfo in Wdc65c02.INSTRUCTIONS do
 		op = op:gsub("write%(address%s*,%s*(.-)%)", "A = %1")
 	end
 
-	impl ..= `cycles += {instruction.base_cycles}\n`
+	if not COMPACT then
+		impl ..= `--[[ {instruction.mnemonic}_{instruction.mode} ]]\n`
+	end
+	impl ..= `cycles_taken += {instruction.base_cycles}\n`
 	impl ..= mode
 	impl ..= op
 
@@ -611,22 +541,48 @@ local function indent_str(str: string, level: number): string
 	return spaces .. str:gsub("\n", "\n" .. spaces)
 end
 
-for category, category_members in CATEGORIES do
-	local out = PRELUDE .. `\nlocal {category} = \{}\n`
+local out = ""
+if BINARY_SEARCH then
+	local function generate_tree(low: number, high: number, indent: number): string
+		local tabs = string.rep("    ", indent)
 
-	for _, instruction in Wdc65c02.INSTRUCTIONS do
-		if not table.find(category_members, instruction.mnemonic) then
-			continue
+		if low == high then
+			return indent_str(implementations[low], indent) .. "\n"
+		else
+			local mid = math.floor((low + high) / 2)
+			local out = ""
+
+			out ..= string.format("%sif op <= %d then\n", tabs, mid)
+			out ..= generate_tree(low, mid, indent + 1)
+			out ..= string.format("%selse\n", tabs)
+			out ..= generate_tree(mid + 1, high, indent + 1)
+			out ..= string.format("%send\n", tabs)
+
+			return out
 		end
-
-		out ..= `{category}[{string.format("0x%02X", instruction.opcode)}] = function(self: any, read: (number) -> number, write: (number, number) -> (), A: number, X: number, Y: number, S: number, PC: number, N: number, Z: number, V: boolean, D: boolean, I: boolean, C: boolean, cycles: number): (number, number, number, number, number, number, number, boolean, boolean, boolean, boolean, number, boolean)\n`
-		out ..= "    local should_break = false\n"
-		out ..= indent_str(implementations[instruction.opcode], 1) .. "\n"
-		out ..= `    return A, X, Y, S, PC, N, Z, V, D, I, C, cycles, should_break\n`
-		out ..= `end\n\n`
 	end
 
-	out ..= `return {category}\n`
+	out = generate_tree(0, 255, 0)
+else
+	for i = 0, 255 do
+		if i == 0 then
+			out ..= "if "
+		else
+			out ..= "elseif "
+		end
 
-	zune.fs.writeFile(`src/Wdc65C02v2/opcodes/{category}.luau`, out)
+		local impl = indent_str(implementations[i], 1)
+
+		local hex = string.format("%02X", i)
+		out ..= `op == 0x{hex} then\n`
+		out ..= impl
+		out ..= "\n"
+	end
+	out ..= 'else\n    error("worm")\nend'
 end
+
+if COMPACT then
+	out = out:gsub("\n", " "):gsub("%s%s*", " ")
+end
+out = "--stylua: ignore\n" .. out
+zune.io.stdout:write(out)
