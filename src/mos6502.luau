@@ -22,8 +22,6 @@ export type Mos6502 = {
 	PC: u16,
 	--- The number of cycles taken.
 	cycles: number,
-	--- Whether the CPU is jammed.
-	jammed: boolean,
 	--- Whether a reset is pending.
 	pending_reset: boolean,
 	--- Whether an NMI is pending.
@@ -198,8 +196,17 @@ end
 
 --- Pushes a value onto the stack.
 local function push_value(cpu: Mos6502, memory: Bus, value: u8)
+	if cpu.S == -1 then
+		error({
+			id = "stack_overflow",
+		})
+	end
+
 	memory.write(0x0100 + cpu.S, value)
 	cpu.S = SUB_U8(cpu.S, 1)
+	if cpu.S == 255 then
+		cpu.S = -1
+	end
 end
 
 --- Pops a value from the stack.
@@ -222,7 +229,6 @@ local function handle_reset(cpu: Mos6502, memory: Bus)
 	cpu.S = 0xFD
 	cpu.PC = CONCAT_U16(memory.read(0xFFFC), memory.read(0xFFFD))
 	cpu.cycles = 0
-	cpu.jammed = false
 	cpu.pending_irq = false
 	cpu.pending_nmi = false
 	cpu.pending_reset = false
@@ -712,13 +718,6 @@ local ops = {
 		return 0
 	end,
 
-	--[[ Kill ]]
-	--
-	JAM = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
-		cpu.jammed = true
-		return 0
-	end,
-
 	--[[ Nop ]]
 	--
 	NOP = function(cpu: Mos6502, memory: Bus, mode: AddressingMode): number
@@ -825,18 +824,18 @@ local instructions: { [number]: InstructionInfo } = {
 	[0x5D] = { opcode = 0x5D, mnemonic = "EOR", operation = ops.EOR, mode = "ABX", cycles = 4, illegal = false },
 
 	-- JAM
-	[0x02] = { opcode = 0x02, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x12] = { opcode = 0x12, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x22] = { opcode = 0x22, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x32] = { opcode = 0x32, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x42] = { opcode = 0x42, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x52] = { opcode = 0x52, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x62] = { opcode = 0x62, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x72] = { opcode = 0x72, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0x92] = { opcode = 0x92, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0xB2] = { opcode = 0xB2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0xD2] = { opcode = 0xD2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
-	[0xF2] = { opcode = 0xF2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x02] = { opcode = 0x02, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x12] = { opcode = 0x12, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x22] = { opcode = 0x22, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x32] = { opcode = 0x32, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x42] = { opcode = 0x42, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x52] = { opcode = 0x52, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x62] = { opcode = 0x62, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x72] = { opcode = 0x72, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0x92] = { opcode = 0x92, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0xB2] = { opcode = 0xB2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0xD2] = { opcode = 0xD2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
+	--[0xF2] = { opcode = 0xF2, mnemonic = "JAM", operation = ops.JAM, mode = "IMP", cycles = 0, illegal = true },
 
 	-- CLC
 	[0x18] = { opcode = 0x18, mnemonic = "CLC", operation = ops.CLC, mode = "IMP", cycles = 2, illegal = false },
@@ -1032,34 +1031,34 @@ local instructions: { [number]: InstructionInfo } = {
 	[0x60] = { opcode = 0x60, mnemonic = "RTS", operation = ops.RTS, mode = "IMP", cycles = 6, illegal = false },
 
 	-- NOP
-	[0x04] = { opcode = 0x04, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
-	[0x0C] = { opcode = 0x0C, mnemonic = "NOP", operation = ops.NOP, mode = "ABS", cycles = 4, illegal = true },
-	[0x14] = { opcode = 0x14, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0x1A] = { opcode = 0x1A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0x1C] = { opcode = 0x1C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
-	[0x34] = { opcode = 0x34, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0x3A] = { opcode = 0x3A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0x3C] = { opcode = 0x3C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
-	[0x44] = { opcode = 0x44, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
-	[0x54] = { opcode = 0x54, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0x5A] = { opcode = 0x5A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0x5C] = { opcode = 0x5C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
-	[0x64] = { opcode = 0x64, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
-	[0x74] = { opcode = 0x74, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0x7A] = { opcode = 0x7A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0x7C] = { opcode = 0x7C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
-	[0x80] = { opcode = 0x80, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
-	[0x82] = { opcode = 0x82, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
-	[0x89] = { opcode = 0x89, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
-	[0xC2] = { opcode = 0xC2, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
-	[0xD4] = { opcode = 0xD4, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0xDA] = { opcode = 0xDA, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0xDC] = { opcode = 0xDC, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
-	[0xE2] = { opcode = 0xE2, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
+	--[0x04] = { opcode = 0x04, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
+	--[0x0C] = { opcode = 0x0C, mnemonic = "NOP", operation = ops.NOP, mode = "ABS", cycles = 4, illegal = true },
+	--[0x14] = { opcode = 0x14, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0x1A] = { opcode = 0x1A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0x1C] = { opcode = 0x1C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0x34] = { opcode = 0x34, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0x3A] = { opcode = 0x3A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0x3C] = { opcode = 0x3C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0x44] = { opcode = 0x44, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
+	--[0x54] = { opcode = 0x54, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0x5A] = { opcode = 0x5A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0x5C] = { opcode = 0x5C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0x64] = { opcode = 0x64, mnemonic = "NOP", operation = ops.NOP, mode = "ZP0", cycles = 3, illegal = true },
+	--[0x74] = { opcode = 0x74, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0x7A] = { opcode = 0x7A, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0x7C] = { opcode = 0x7C, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0x80] = { opcode = 0x80, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
+	--[0x82] = { opcode = 0x82, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
+	--[0x89] = { opcode = 0x89, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
+	--[0xC2] = { opcode = 0xC2, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
+	--[0xD4] = { opcode = 0xD4, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0xDA] = { opcode = 0xDA, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0xDC] = { opcode = 0xDC, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0xE2] = { opcode = 0xE2, mnemonic = "NOP", operation = ops.NOP, mode = "IMM", cycles = 2, illegal = true },
 	[0xEA] = { opcode = 0xEA, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = false },
-	[0xF4] = { opcode = 0xF4, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
-	[0xFA] = { opcode = 0xFA, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
-	[0xFC] = { opcode = 0xFC, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
+	--[0xF4] = { opcode = 0xF4, mnemonic = "NOP", operation = ops.NOP, mode = "ZPX", cycles = 4, illegal = true },
+	--[0xFA] = { opcode = 0xFA, mnemonic = "NOP", operation = ops.NOP, mode = "IMP", cycles = 2, illegal = true },
+	--[0xFC] = { opcode = 0xFC, mnemonic = "NOP", operation = ops.NOP, mode = "ABX", cycles = 4, illegal = true },
 
 	-- RLA
 	--[0x23] = { opcode = 0x23, mnemonic = "RLA", operation = ops.RLA, mode = "IZX", cycles = 8, illegal = true },
@@ -1156,8 +1155,6 @@ function mos6502.create(memory: Bus): Mos6502
 		S = 0,
 		PC = 0,
 
-		jammed = false,
-
 		pending_reset = false,
 		pending_nmi = false,
 		pending_irq = false,
@@ -1170,16 +1167,21 @@ function mos6502.create(memory: Bus): Mos6502
 	return cpu
 end
 
+export type StepError =
+	{
+		id: "stack_overflow",
+	}
+	| {
+		id: "illegal_opcode",
+		opcode: number,
+	}
+
 --[=[
 	Steps a single instruction.
 ]=]
 function mos6502.step(self: Mos6502, memory: Bus)
 	if self.pending_reset then
 		handle_reset(self, memory)
-		return
-	end
-
-	if self.jammed then
 		return
 	end
 
@@ -1198,7 +1200,10 @@ function mos6502.step(self: Mos6502, memory: Bus)
 	local opcode = fetch(self, memory)
 	local insn = instructions[opcode]
 	if not insn then
-		error(`opcode 0x{string.format("%02X", opcode)} not implemented`)
+		error({
+			id = "illegal_opcode",
+			opcode = opcode,
+		})
 	end
 
 	local additional_cycles = insn.operation(self, memory, insn.mode)
