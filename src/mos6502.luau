@@ -270,7 +270,7 @@ local function handle_interrupt(cpu: Mos6502, memory: Bus, vector: u16, brk: boo
 
 	local p = cpu.P
 	p = SET_FLAG(p, FLAG_B, brk or false)
-	p = SET_FLAG(p, FLAG_I, true)
+	p = SET_FLAG(p, FLAG_U, true)
 	push_value(cpu, memory, p)
 
 	cpu.P = SET_FLAG(cpu.P, FLAG_I, true)
