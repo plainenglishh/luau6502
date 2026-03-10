@@ -1217,7 +1217,6 @@ function mos6502.step(self: Mos6502, memory: Bus): number
 
 	if self.pending_irq and not GET_FLAG(self.P, FLAG_I) then
 		handle_interrupt(self, memory, 0xFFFE)
-		self.pending_irq = false
 		return self.cycles - initial_cycles
 	end
 
@@ -1240,12 +1239,12 @@ function mos6502.reset(self: Mos6502)
 	self.pending_reset = true
 end
 
-function mos6502.interrupt(self: Mos6502, type: "irq" | "nmi")
-	if type == "irq" then
-		self.pending_irq = true
-	elseif type == "nmi" then
-		self.pending_nmi = true
-	end
+function mos6502.nmi(self: Mos6502)
+	self.pending_nmi = true
+end
+
+function mos6502.irq(self: Mos6502, enabled: boolean)
+	self.pending_irq = enabled
 end
 
 function mos6502.status(self: Mos6502): string
