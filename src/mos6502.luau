@@ -249,7 +249,6 @@ end
 --- Increments the cycle counter by `count`, and calls the cycle hook `count` times.
 local function cycle(cpu: Mos6502, count: number)
 	cpu.cycles += count
-	--- call hook
 end
 
 local function handle_reset(cpu: Mos6502, memory: Bus)
@@ -1203,22 +1202,23 @@ end
 --[=[
 	Steps a single instruction.
 ]=]
-function mos6502.step(self: Mos6502, memory: Bus)
+function mos6502.step(self: Mos6502, memory: Bus): number
+	local initial_cycles = self.cycles
 	if self.pending_reset then
 		handle_reset(self, memory)
-		return
+		return self.cycles - initial_cycles
 	end
 
 	if self.pending_nmi then
 		handle_interrupt(self, memory, 0xFFFA)
 		self.pending_nmi = false
-		return
+		return self.cycles - initial_cycles
 	end
 
 	if self.pending_irq and not GET_FLAG(self.P, FLAG_I) then
 		handle_interrupt(self, memory, 0xFFFE)
 		self.pending_irq = false
-		return
+		return self.cycles - initial_cycles
 	end
 
 	local opcode = fetch(self, memory)
@@ -1233,6 +1233,7 @@ function mos6502.step(self: Mos6502, memory: Bus)
 
 	local additional_cycles = insn.operation(self, memory, insn.mode)
 	cycle(self, insn.cycles + additional_cycles)
+	return self.cycles - initial_cycles
 end
 
 function mos6502.reset(self: Mos6502)
