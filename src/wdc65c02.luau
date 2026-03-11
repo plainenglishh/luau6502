@@ -14,147 +14,6 @@ local VECTOR_RESB = 0xFFFC
 local VECTOR_NIMB = 0xFFFA
 local STACK_BASE = 0x0100
 
-type u8 = number
-type u16 = number
-
-export type ErrorInfo = {
-	type: "stack_overflow",
-	snapshot: Wdc65c02,
-}
-
-export type ErrorHandler = (info: ErrorInfo) -> ()
-
---[=[
-    The internal state and pinout of a WDC65C02S CPU.
-]=]
-export type Wdc65c02 = {
-	-- Registers
-	read a: u8,
-	read x: u8,
-	read y: u8,
-	read s: u8,
-	read pc: u16,
-	read ir: u8,
-	read tcu: u8,
-	read _adl: u8,
-	read _adh: u8,
-	read _id: u8,
-
-	-- Flags
-	read n: boolean,
-	read v: boolean,
-	read d: boolean,
-	read i: boolean,
-	read z: boolean,
-	read c: boolean,
-
-	-- Pins
-	read address_bus: u16,
-	write data_bus: u8,
-	read bus_enable: boolean,
-	write irqb: boolean,
-	read mlb: boolean,
-	write nmi: boolean,
-	read rwb: boolean,
-	read phi1o: boolean,
-	read phi2o: boolean,
-	write rdy: boolean,
-	write resb: boolean,
-	write sob: boolean,
-	read sync: boolean,
-	read vpb: boolean,
-
-	-- Hooks
-	write on_error: ErrorHandler?,
-
-	-- Other State
-	read cycles: number, -- The number of cycles the CPU has used.
-	read _last_nmi: boolean, -- Edge detection (negative transition)
-	read _last_sob: boolean, -- Edge detection (negative transiton)
-	read _resb_downtime: number, -- Cycles RESB has been held low for
-	read _last_resb: boolean, -- Edge detection (positive transition)
-	read _internal_rdy: boolean, -- Internal RDY signal, to hold it low if outside tries to pull it high during WAI/STP
-}
-
-type function strip_read_only(t: type): type
-	local props = {}
-
-	for a, b in t:properties() do
-		props[a] = b.read or b.write
-	end
-
-	return types.newtable(props)
-end
-
-type _Wdc65c02 = strip_read_only<Wdc65c02>
-
-export type InstructionInfo = {
-	mnemonic: string,
-	opcode: number,
-	mode: string,
-	base_cycles: number,
-}
-
-type Uop = (cpu: _Wdc65c02, phi1: boolean) -> ()
-type Op = { Uop }
-
---- Reusable cycles
-local uops = {
-	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
-		if phi1 then
-			cpu.address_bus = cpu.pc
-			cpu.rwb = true
-			cpu.bus_enable = true
-		else
-			cpu.ir = cpu.data_bus
-			cpu.pc += 1
-		end
-	end,
-}
-
-local ops: { [number]: Op } = {}
-
-local function tick(cpu: _Wdc65c02)
-	-- Check RDY and everything else later
-
-	local phi1 = cpu.phi2o
-	local phi2 = cpu.phi1o
-	cpu.phi1o = phi1
-	cpu.phi2o = phi2
-
-	if cpu.tcu == 0 then
-		uops.fetch_op(cpu, phi1)
-		return
-	end
-
-	local op = ops[cpu.ir]
-	local cycle = op[cpu.tcu]
-	cycle(cpu, phi1)
-
-	if phi1 then
-		return
-	end
-
-	cpu.cycles += 1
-
-	if cpu.tcu == #op then
-		cpu.tcu = 0
-	else
-		cpu.tcu += 1
-	end
-end
-
-local wdc65c02 = {}
-
---[=[
-    Runs a single clock half-cycle.
-
-    This is equivalent to inverting `PHI2`.
-]=]
-function wdc65c02.tick(cpu: Wdc65c02)
-	tick(cpu :: _Wdc65c02)
-end
-
 local INSTRUCTIONS: { InstructionInfo } = {
 	[0x7d] = { mnemonic = "ADC", opcode = 0x7d, mode = "ABX", base_cycles = 4 },
 	[0x65] = { mnemonic = "ADC", opcode = 0x65, mode = "ZP0", base_cycles = 3 },
@@ -413,5 +272,148 @@ local INSTRUCTIONS: { InstructionInfo } = {
 	[0x7b] = { mnemonic = "NOP", opcode = 0x7b, mode = "IMP", base_cycles = 1 },
 	[0x43] = { mnemonic = "NOP", opcode = 0x43, mode = "IMP", base_cycles = 1 },
 }
+
+type u8 = number
+type u16 = number
+
+export type ErrorInfo = {
+	type: "stack_overflow",
+	snapshot: Wdc65c02,
+}
+
+export type ErrorHandler = (info: ErrorInfo) -> ()
+
+--[=[
+    The internal state and pinout of a WDC65C02S CPU.
+]=]
+export type Wdc65c02 = {
+	-- Registers
+	read a: u8,
+	read x: u8,
+	read y: u8,
+	read s: u8,
+	read pc: u16,
+	read ir: u8,
+	read tcu: u8,
+	read _adl: u8,
+	read _adh: u8,
+	read _id: u8,
+
+	-- Flags
+	read n: boolean,
+	read v: boolean,
+	read d: boolean,
+	read i: boolean,
+	read z: boolean,
+	read c: boolean,
+
+	-- Pins
+	read address_bus: u16,
+	write data_bus: u8,
+	read bus_enable: boolean,
+	write irqb: boolean,
+	read mlb: boolean,
+	write nmi: boolean,
+	read rwb: boolean,
+	read phi1o: boolean,
+	read phi2o: boolean,
+	write rdy: boolean,
+	write resb: boolean,
+	write sob: boolean,
+	read sync: boolean,
+	read vpb: boolean,
+
+	-- Hooks
+	write on_error: ErrorHandler?,
+
+	-- Other State
+	read cycles: number, -- The number of cycles the CPU has used.
+	read _last_nmi: boolean, -- Edge detection (negative transition)
+	read _last_sob: boolean, -- Edge detection (negative transiton)
+	read _resb_downtime: number, -- Cycles RESB has been held low for
+	read _last_resb: boolean, -- Edge detection (positive transition)
+	read _internal_rdy: boolean, -- Internal RDY signal, to hold it low if outside tries to pull it high during WAI/STP
+}
+
+type function strip_read_only(t: type): type
+	local props = {}
+
+	for a, b in t:properties() do
+		props[a] = b.read or b.write
+	end
+
+	return types.newtable(props)
+end
+
+type _Wdc65c02 = strip_read_only<Wdc65c02>
+
+export type InstructionInfo = {
+	mnemonic: string,
+	opcode: number,
+	mode: string,
+	base_cycles: number,
+}
+
+type Uop = (cpu: _Wdc65c02, phi1: boolean) -> ()
+type Op = { Uop }
+
+--- Reusable cycles
+local uops = {
+	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			cpu.address_bus = cpu.pc
+			cpu.rwb = true
+			cpu.bus_enable = true
+		else
+			cpu.ir = cpu.data_bus
+			cpu.pc += 1
+		end
+	end,
+}
+
+local ops: { [number]: Op } = {}
+
+local function tick(cpu: _Wdc65c02)
+	-- Check RDY and everything else later
+
+	local phi1 = cpu.phi2o
+	local phi2 = cpu.phi1o
+	cpu.phi1o = phi1
+	cpu.phi2o = phi2
+
+	if cpu.tcu == 0 then
+		uops.fetch_op(cpu, phi1)
+		return
+	end
+
+	local op = ops[cpu.ir]
+	local cycle = op[cpu.tcu]
+	cycle(cpu, phi1)
+
+	if phi1 then
+		return
+	end
+
+	cpu.cycles += 1
+
+	if cpu.tcu == #op then
+		cpu.tcu = 0
+	else
+		cpu.tcu += 1
+	end
+end
+
+local wdc65c02 = {}
+
+--[=[
+    Runs a single clock half-cycle.
+
+    This is equivalent to inverting `PHI2`.
+]=]
+function wdc65c02.tick(cpu: Wdc65c02)
+	tick(cpu :: _Wdc65c02)
+end
+
+wdc65c02.INSTRUCTIONS = INSTRUCTIONS
 
 return wdc65c02
