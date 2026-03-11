@@ -7,5 +7,6 @@
   },
   "luau-lsp.types.documentationFiles": [
     "~/.zune/typedefs/global/zune.d.json"
-  ]
+  ],
+  "luau-lsp.completion.imports.enabled": false
 }
