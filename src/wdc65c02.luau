@@ -2,9 +2,10 @@
 --!native
 
 --[=[
-	dev notes:
-	1. cycles are to be implemented as functions that accepts the cpu state as 
-	a parameter and modifies it.
+	TODO:
+		- Determine our fundamental micro-ops, and implement them in `cycles`.
+		- Populate the `ops` table with implemented micro-ops (consider 
+		  automating?)
 ]=]
 local _
 
@@ -24,7 +25,7 @@ export type ErrorInfo = {
 export type ErrorHandler = (info: ErrorInfo) -> ()
 
 --[=[
-    The internal state of a Western Design Centre 65C02 CPU.
+    The internal state and pinout of a WDC65C02S CPU.
 ]=]
 export type Wdc65c02 = {
 	-- Registers
@@ -49,20 +50,22 @@ export type Wdc65c02 = {
 
 	-- Pins
 	read address_bus: u16,
-	data_bus: u8,
+	write data_bus: u8,
 	read bus_enable: boolean,
-	irqb: boolean,
+	write irqb: boolean,
 	read mlb: boolean,
-	nmi: boolean,
+	write nmi: boolean,
 	read rwb: boolean,
-	rdy: boolean,
-	resb: boolean,
-	sob: boolean,
+	read phi1o: boolean,
+	read phi2o: boolean,
+	write rdy: boolean,
+	write resb: boolean,
+	write sob: boolean,
 	read sync: boolean,
 	read vpb: boolean,
 
 	-- Hooks
-	on_error: ErrorHandler?,
+	write on_error: ErrorHandler?,
 
 	-- Other State
 	read cycles: number, -- The number of cycles the CPU has used.
@@ -91,6 +94,66 @@ export type InstructionInfo = {
 	mode: string,
 	base_cycles: number,
 }
+
+type Cycle = (cpu: _Wdc65c02, phi1: boolean) -> ()
+type Op = { Cycle }
+
+--- Reusable cycles
+local cycles = {
+	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			cpu.address_bus = cpu.pc
+			cpu.rwb = true
+			cpu.bus_enable = true
+		else
+			cpu.ir = cpu.data_bus
+			cpu.pc += 1
+		end
+	end,
+}
+
+local ops: { [number]: Op } = {}
+
+local function tick(cpu: _Wdc65c02)
+	-- Check RDY and everything else later
+
+	local phi1 = cpu.phi2o
+	local phi2 = cpu.phi1o
+	cpu.phi1o = phi1
+	cpu.phi2o = phi2
+
+	if cpu.tcu == 0 then
+		cycles.fetch_op(cpu, phi1)
+		return
+	end
+
+	local op = ops[cpu.ir]
+	local cycle = op[cpu.tcu]
+	cycle(cpu, phi1)
+
+	if phi1 then
+		return
+	end
+
+	cpu.cycles += 1
+
+	if cpu.tcu == #op then
+		cpu.tcu = 0
+	else
+		cpu.tcu += 1
+	end
+end
+
+local wdc65c02 = {}
+
+--[=[
+    Runs a single clock half-cycle.
+
+    This is equivalent to inverting `PHI2`.
+]=]
+function wdc65c02.tick(cpu: Wdc65c02)
+	tick(cpu :: _Wdc65c02)
+end
 
 local INSTRUCTIONS: { InstructionInfo } = {
 	[0x7d] = { mnemonic = "ADC", opcode = 0x7d, mode = "ABX", base_cycles = 4 },
@@ -350,27 +413,5 @@ local INSTRUCTIONS: { InstructionInfo } = {
 	[0x7b] = { mnemonic = "NOP", opcode = 0x7b, mode = "IMP", base_cycles = 1 },
 	[0x43] = { mnemonic = "NOP", opcode = 0x43, mode = "IMP", base_cycles = 1 },
 }
-
-type Cycle = (cpu: _Wdc65c02) -> ()
-type Op = { Cycle }
-
-local cycles = {}
-
-local ops: { [number]: Op } = {}
-
-local function step(cpu: _Wdc65c02)
-	--- logic
-end
-
-local wdc65c02 = {}
-
---[=[
-    Runs a single clock half-cycle.
-
-    This is equivalent to inverting `PHI2` twice.
-]=]
-function wdc65c02.step(cpu: Wdc65c02)
-	step(cpu :: _Wdc65c02)
-end
 
 return wdc65c02
