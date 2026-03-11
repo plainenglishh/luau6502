@@ -95,11 +95,11 @@ export type InstructionInfo = {
 	base_cycles: number,
 }
 
-type Cycle = (cpu: _Wdc65c02, phi1: boolean) -> ()
-type Op = { Cycle }
+type Uop = (cpu: _Wdc65c02, phi1: boolean) -> ()
+type Op = { Uop }
 
 --- Reusable cycles
-local cycles = {
+local uops = {
 	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
 		if phi1 then
 			cpu.address_bus = cpu.pc
@@ -123,7 +123,7 @@ local function tick(cpu: _Wdc65c02)
 	cpu.phi2o = phi2
 
 	if cpu.tcu == 0 then
-		cycles.fetch_op(cpu, phi1)
+		uops.fetch_op(cpu, phi1)
 		return
 	end
 
