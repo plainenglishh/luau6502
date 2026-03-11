@@ -1,31 +1,27 @@
 --!nolint LocalShadow
 --!native
 
---[[
-    
-]]
-
-type u8 = number
-type u16 = number
-
-export type ReadFn = (address: u16) -> u8
-export type WriteFn = (address: u16, value: u8) -> ()
-export type Bus = {
-	read: ReadFn,
-	write: WriteFn,
-}
-
-export type TrapInfo = {
-	type: "stack_overflow",
-	snapshot: Wdc65c02,
-}
-
-export type TrapHandler = (info: TrapInfo) -> ()
+--[=[
+	dev notes:
+	1. cycles are to be implemented as functions that accepts the cpu state as 
+	a parameter and modifies it.
+]=]
+local _
 
 local VECTOR_IRQB = 0xFFFE
 local VECTOR_RESB = 0xFFFC
 local VECTOR_NIMB = 0xFFFA
 local STACK_BASE = 0x0100
+
+type u8 = number
+type u16 = number
+
+export type ErrorInfo = {
+	type: "stack_overflow",
+	snapshot: Wdc65c02,
+}
+
+export type ErrorHandler = (info: ErrorInfo) -> ()
 
 --[=[
     The internal state of a Western Design Centre 65C02 CPU.
@@ -58,17 +54,15 @@ export type Wdc65c02 = {
 	irqb: boolean,
 	read mlb: boolean,
 	nmi: boolean,
-	read phi2o: boolean,
-	read phi1o: boolean,
 	read rwb: boolean,
 	rdy: boolean,
 	resb: boolean,
 	sob: boolean,
 	read sync: boolean,
-	read vpb: boolean, -- kernel mode :v
+	read vpb: boolean,
 
 	-- Hooks
-	trap: TrapHandler?, -- default to `error`
+	on_error: ErrorHandler?,
 
 	-- Other State
 	read cycles: number, -- The number of cycles the CPU has used.
@@ -357,102 +351,14 @@ local INSTRUCTIONS: { InstructionInfo } = {
 	[0x43] = { mnemonic = "NOP", opcode = 0x43, mode = "IMP", base_cycles = 1 },
 }
 
-type HalfCycle = (cpu: _Wdc65c02) -> ()
-type Cycle = { HalfCycle }
+type Cycle = (cpu: _Wdc65c02) -> ()
 type Op = { Cycle }
 
---- Reusable Half Cycles
-local half_cycles = {
-	p1_read = function(cpu: _Wdc65c02)
-		cpu.address_bus = cpu.pc
-		cpu.rwb = true
-	end,
-}
+local cycles = {}
 
---- Reusable Cycles
-local cycles = {
-	FetchOp = {
-		function(cpu: _Wdc65c02)
-			cpu.address_bus = cpu.pc
-			cpu.sync = true
-			cpu.rwb = true
-		end,
-		function(cpu: _Wdc65c02)
-			cpu.ir = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
+local ops: { [number]: Op } = {}
 
-	FetchAdl = {
-		half_cycles.p1_read,
-		function(cpu: _Wdc65c02)
-			cpu._adl = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
-
-	FetchAdh = {
-		half_cycles.p1_read,
-		function(cpu: _Wdc65c02)
-			cpu._adh = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
-
-	FetchImmA = {
-		half_cycles.p1_read,
-		function(cpu: _Wdc65c02)
-			cpu.a = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
-
-	FetchImmX = {
-		half_cycles.p1_read,
-		function(cpu: _Wdc65c02)
-			cpu.x = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
-
-	FetchImmY = {
-		half_cycles.p1_read,
-		function(cpu: _Wdc65c02)
-			cpu.y = cpu.data_bus
-			cpu.pc = (cpu.pc + 1) % 0x10000
-		end,
-	},
-}
-
---- Builder functions for mode cycles.
-local modes = {
-	IMM = function(operation: Cycle): { Cycle }
-		return { operation }
-	end,
-}
-
-local ops = {
-	-- LDA IMM
-	[0xA9] = {
-		cycles.FetchImmA,
-	},
-
-	-- LDX IMM
-	[0xA2] = {
-		cycles.FetchImmX,
-	},
-
-	-- LDX IMM
-	[0xA0] = {
-		cycles.FetchImmY,
-	},
-}
-
-local function tick(cpu: _Wdc65c02)
-	local phi2 = cpu.phi2o
-	cpu.phi1o = not cpu.phi1o
-	cpu.phi2o = not cpu.phi2o
-
+local function step(cpu: _Wdc65c02)
 	--- logic
 end
 
@@ -461,10 +367,10 @@ local wdc65c02 = {}
 --[=[
     Runs a single clock half-cycle.
 
-    This is equivalent to inverting `PHI2`.
+    This is equivalent to inverting `PHI2` twice.
 ]=]
-function wdc65c02.tick(cpu: Wdc65c02)
-	tick(cpu :: _Wdc65c02)
+function wdc65c02.step(cpu: Wdc65c02)
+	step(cpu :: _Wdc65c02)
 end
 
 return wdc65c02

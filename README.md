@@ -1,5 +1,5 @@
 # luau6502
 
-**WARNING: This is mostly untested.**
+Pure-Luau 6502-family CPU emulators.
 
-Pure-Luau 6502 emulator, and some associated utilities.
+The CPU emulators are single-file libraries found under `src/`.
