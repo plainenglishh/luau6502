@@ -480,7 +480,15 @@ ops[0xFF + 2] = {
 	uops.jump_irq_vector_high,
 }
 
-local function tick(cpu: _Wdc65c02)
+local wdc65c02 = {}
+
+--[=[
+    Runs a single clock half-cycle.
+
+    This is equivalent to inverting `PHI2`.
+]=]
+function wdc65c02.tick(cpu: Wdc65c02)
+	local cpu = cpu :: _Wdc65c02
 	-- Check RDY and everything else later
 
 	local phi1 = cpu.phi2o
@@ -508,17 +516,6 @@ local function tick(cpu: _Wdc65c02)
 	else
 		cpu.tcu += 1
 	end
-end
-
-local wdc65c02 = {}
-
---[=[
-    Runs a single clock half-cycle.
-
-    This is equivalent to inverting `PHI2`.
-]=]
-function wdc65c02.tick(cpu: Wdc65c02)
-	tick(cpu :: _Wdc65c02)
 end
 
 wdc65c02.INSTRUCTIONS = INSTRUCTIONS
