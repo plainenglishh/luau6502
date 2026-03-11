@@ -6,6 +6,7 @@
 		- Determine our fundamental micro-ops, and implement them in `cycles`.
 		- Populate the `ops` table with implemented micro-ops (consider 
 		  automating?)
+		- Use functional tests to help implement.
 ]=]
 local _
 
@@ -310,6 +311,7 @@ export type Wdc65c02 = {
 	-- Pins
 	read address_bus: u16,
 	write data_bus: u8,
+	--- true = active
 	read bus_enable: boolean,
 	write irqb: boolean,
 	read mlb: boolean,
@@ -321,6 +323,7 @@ export type Wdc65c02 = {
 	write resb: boolean,
 	write sob: boolean,
 	read sync: boolean,
+	--- false = currently reading vector
 	read vpb: boolean,
 
 	-- Hooks
@@ -357,21 +360,125 @@ export type InstructionInfo = {
 type Uop = (cpu: _Wdc65c02, phi1: boolean) -> ()
 type Op = { Uop }
 
---- Reusable cycles
+-- Functions prefixed with uopaux are auxillary functions to be used in uop implementations.
+
+local function uopaux_p1_push_value(cpu: _Wdc65c02, value: u8)
+	cpu.address_bus = bit32.bor(STACK_BASE, cpu.s)
+	cpu.s = (cpu.s - 1) % 256
+	cpu.data_bus = value
+	cpu.rwb = false
+end
+
+--- data will be available in phi2
+local function uopaux_p1_read_value(cpu: _Wdc65c02, address: u16)
+	cpu.address_bus = address
+	cpu.rwb = true
+end
+
+--- Reusable uops
 local uops = {
+	--- Fetch the opcode.
 	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
 		if phi1 then
 			cpu.address_bus = cpu.pc
 			cpu.rwb = true
-			cpu.bus_enable = true
 		else
 			cpu.ir = cpu.data_bus
 			cpu.pc += 1
 		end
 	end,
+
+	--- Dummy read.
+	internal_pc = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			cpu.address_bus = cpu.pc
+			cpu.rwb = true
+		end
+	end,
+
+	reset = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			cpu.d = false
+			cpu.i = true
+		end
+	end,
+
+	--- Push processor status.
+	push_status = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_push_value(cpu, 0)
+		end
+	end,
+
+	push_return_address_low = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_push_value(cpu, bit32.extract(cpu.pc + 1, 0, 8))
+		end
+	end,
+
+	push_return_address_high = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_push_value(cpu, bit32.extract(cpu.pc + 1, 8, 8))
+		end
+	end,
+
+	jump_irq_vector_low = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_read_value(cpu, VECTOR_IRQB)
+		else
+			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 0, 8)
+		end
+	end,
+
+	jump_irq_vector_high = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_read_value(cpu, VECTOR_IRQB + 1)
+		else
+			cpu.vpb = true
+			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 8, 8)
+		end
+	end,
+
+	jump_reset_vector_low = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_read_value(cpu, VECTOR_RESB)
+		else
+			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 0, 8)
+		end
+	end,
+
+	jump_reset_vector_high = function(cpu: _Wdc65c02, phi1: boolean)
+		if phi1 then
+			uopaux_p1_read_value(cpu, VECTOR_RESB + 1)
+		else
+			cpu.vpb = true
+			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 8, 8)
+		end
+	end,
 }
 
-local ops: { [number]: Op } = {}
+local ops: { [number]: Op } = table.create(256 + 3, nil :: any) -- extra used for reset/irq/nmi pseudoinstruction
+
+--- RESET
+ops[0xFF + 1] = {
+	uops.internal_pc, -- pc
+	uops.reset,
+	uops.internal_pc, -- FIXME: stack
+	uops.internal_pc, -- FIXME: stack - 1
+	uops.jump_reset_vector_low,
+	uops.jump_reset_vector_high,
+}
+
+--- IRQ
+ops[0xFF + 2] = {
+	-- First internal is taken when reset is caught
+	uops.internal_pc,
+	uops.push_return_address_high,
+	uops.push_return_address_low,
+	uops.push_status,
+	uops.jump_irq_vector_low,
+	uops.jump_irq_vector_high,
+}
 
 local function tick(cpu: _Wdc65c02)
 	-- Check RDY and everything else later
