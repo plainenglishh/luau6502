@@ -1,6 +1,3 @@
-local bus = require("./bus")
-type Bus = bus.Bus
-
 local FLAG_N, FLAG_V, FLAG_U, FLAG_B, FLAG_D, FLAG_I, FLAG_Z, FLAG_C = 7, 6, 5, 4, 3, 2, 1, 0
 
 type u8 = number
@@ -48,6 +45,27 @@ export type TrapInfo =
 		address: number,
 		type: "read" | "write",
 	}
+
+--[=[
+	Opaque representation of a memory bus. You can construct this using the 
+	`mos6502.bus` library, or by implementing it yourself.
+]=]
+export type Bus = {
+	--[=[
+		Reads a value from memory.
+	
+		You should return the last value if the addressed location isn't
+		mapped to anything.
+	]=]
+	read: (address: number) -> number,
+
+	--[=[
+		Writes a value to memory.
+
+		This is allowed to silently fail.
+	]=]
+	write: (address: number, value: number) -> (),
+}
 
 export type TrapHandler = (info: TrapInfo) -> ()
 local DEFAULT_TRAP_HANDLER = error :: TrapHandler
