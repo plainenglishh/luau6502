@@ -434,7 +434,7 @@ export type Wdc65c02 = {
 		Causes the CPU to initiate an interrupt sequence on transition from high
 		to low.
 	]=]
-	nmi: boolean,
+	nmib: boolean,
 
 	--[=[
 		The Phase 1 output pin.
@@ -506,7 +506,7 @@ export type Wdc65c02 = {
 	read _pending_nmi: boolean,
 	read _pending_irq: boolean,
 	read _pending_resb: boolean,
-	read _last_nmi: boolean, -- Edge detection (negative transition)
+	read _last_nmib: boolean, -- Edge detection (negative transition)
 	read _last_sob: boolean, -- Edge detection (negative transiton)
 	read _resb_downtime: number, -- Cycles RESB has been held low for
 	read _last_resb: boolean, -- Edge detection (positive transition)
@@ -662,6 +662,55 @@ ops[0xFF + 3] = {
 
 local wdc65c02 = {}
 
+wdc65c02.INSTRUCTIONS = INSTRUCTIONS
+
+function wdc65c02.create(): Wdc65c02
+	return {
+		a = 0x00,
+		x = 0x00,
+		y = 0x00,
+		s = 0xFF,
+		pc = 0x0000,
+		ir = 0x00,
+		tcu = 1,
+		_adl = 0,
+		_adh = 0,
+
+		n = false,
+		v = false,
+		d = false,
+		i = true,
+		z = false,
+		c = false,
+
+		address_bus = 0x0000,
+		data_bus = 0x00,
+		be = false,
+		irqb = true,
+		mlb = true,
+		nmib = true,
+		phi1o = true,
+		phi2o = false,
+		rwb = false,
+		rdy = true,
+		resb = true,
+		sob = true,
+		sync = false,
+		vpb = true,
+
+		on_error = nil,
+		cycles = 0,
+		_pending_nmi = false,
+		_pending_irq = false,
+		_pending_resb = true,
+		_last_nmib = true,
+		_last_sob = true,
+		_resb_downtime = 0,
+		_last_resb = true,
+		_internal_rdy = true,
+	}
+end
+
 --[=[
     Runs a single clock half-cycle.
 
@@ -702,10 +751,10 @@ function wdc65c02.tick(cpu: Wdc65c02)
 		end
 
 		-- Check NMI
-		if cpu.nmi == false and cpu._last_nmi == true then
+		if cpu.nmib == false and cpu._last_nmib == true then
 			cpu._pending_nmi = true
 		end
-		cpu._last_nmi = cpu.nmi
+		cpu._last_nmib = cpu.nmib
 
 		-- Check IRQ
 		cpu._pending_irq = (cpu.irqb == false) and not cpu.i
@@ -740,7 +789,5 @@ function wdc65c02.tick(cpu: Wdc65c02)
 
 	cpu.tcu += 1
 end
-
-wdc65c02.INSTRUCTIONS = INSTRUCTIONS
 
 return wdc65c02
