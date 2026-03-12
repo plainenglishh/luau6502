@@ -289,48 +289,223 @@ export type ErrorHandler = (info: ErrorInfo) -> ()
 ]=]
 export type Wdc65c02 = {
 	-- Registers
+
+	--[=[
+		The **A**ccumulator register.
+	]=]
 	read a: u8,
+
+	--[=[
+		The **X** Index register.
+	]=]
 	read x: u8,
+
+	--[=[
+		The **Y** Index register.
+	]=]
 	read y: u8,
+
+	--[=[
+		The **S**tack Pointer register.
+
+		Contains the current stack pointer. Grows downwards from `0xFF`, and 
+		constitutes a memory address in the 0x0100-0x1FF stack page.
+	]=]
 	read s: u8,
+
+	--[=[
+		The **P**rogram **C**ounter register.
+
+		Contains the program counter.
+	]=]
 	read pc: u16,
+
+	--[=[
+		The **I**nstruction **r**egister.
+
+		Contains the currently-executing instruction.
+	]=]
 	read ir: u8,
+
+	--[=[
+		The **T**iming **C**ontrol **U**nit register.
+
+		Contains the current cycle number for the current instruction.
+	]=]
 	read tcu: u8,
+
+	--[=[
+		The effective **Ad**ress low byte register.
+	
+		Contains the current in-use address low byte.
+	]=]
 	read _adl: u8,
+
+	--[=[
+		The effective **Ad**ress high byte register.
+
+		Contains the current in-use address high byte.
+	]=]
 	read _adh: u8,
-	read _id: u8,
 
 	-- Flags
+
+	--[=[
+		The **N**egative flag.
+
+		Set if the last operation was negative (if bit 7 is set).
+	]=]
 	read n: boolean,
+
+	--[=[
+		The O**v**erflow flag.
+
+		Set if the last operation overflowed.
+	]=]
 	read v: boolean,
+
+	--[=[
+		The **D**ecimal flag.
+
+		When set, ALU instructions will perform BCD-decimal arithmetic.
+	]=]
 	read d: boolean,
+
+	--[=[
+		The **I**nterrupt disable flag.
+
+		When set, maskable interrupts (BRK/IRQ) will be ignored.
+	]=]
 	read i: boolean,
+
+	--[=[
+		The **Z**ero flag.
+
+		Set if the last operation was zero.
+	]=]
 	read z: boolean,
+
+	--[=[
+		The **C**arry flag.
+	]=]
 	read c: boolean,
 
 	-- Pins
+
+	--[=[
+		The address bus (A0-A15) output pins.
+	
+		The address the CPU is currently trying to interact with.
+	]=]
 	read address_bus: u16,
-	write data_bus: u8,
-	--- true = active
-	read bus_enable: boolean,
-	write irqb: boolean,
+
+	--[=[
+		The data bus (D0-D7) input/output pins.
+
+		The data the CPU has read (if rwb is high, or the data the CPU is
+		trying to write (if rwb is low).
+	]=]
+	data_bus: u8,
+
+	--[=[
+		The **B**us **E**nable output pin.
+
+		When high, indicates the CPU is attempting to interact with memory.
+	]=]
+	read be: boolean,
+
+	--[=[
+		The Interrupt Request (**IRQB**) input pin.
+
+		When low, indicates the are interrupts the CPU must attend to.
+	]=]
+	irqb: boolean,
+
+	--[=[
+		The **M**emory **L**ock output pin
+	
+		When low, indicates the need to defer arbitration of the bus cycle.
+	]=]
 	read mlb: boolean,
-	write nmi: boolean,
-	read rwb: boolean,
+
+	--[=[
+		The **N**on-**M**askable **I**nterrupt input pin.
+
+		Causes the CPU to initiate an interrupt sequence on transition from high
+		to low.
+	]=]
+	nmi: boolean,
+
+	--[=[
+		The Phase 1 output pin.
+
+		When high, indicates the CPU is currently in phase 1 of the current 
+		cycle.
+	]=]
 	read phi1o: boolean,
+
+	--[=[
+		The Phase 2 output pin.
+
+		When high, indicates the CPU is currently in phase 2 of the current 
+		cycle.
+	]=]
 	read phi2o: boolean,
-	write rdy: boolean,
-	write resb: boolean,
-	write sob: boolean,
+
+	--[=[
+		The **R**ead **W**rite output pin.
+
+		When high, indicates the CPU is attempting to read from memory / IO.
+		When low, indicates the CPU is attempting to write to memory / IO.
+	]=]
+	read rwb: boolean,
+
+	--[=[
+		The **R**ea**dy** input/output pin.
+
+		Will halt the CPU when low.
+		
+		Instructions like STP and WAI will pull this pin low internally.
+	]=]
+	rdy: boolean,
+
+	--[=[
+		The **Res**et input pin.
+
+		When low (for at least two cycles), causes the CPU to reset.
+	]=]
+	resb: boolean,
+
+	--[=[
+		The **S**et **O**verflow input pin.
+
+		Causes the internal overflow pin to be set when transitioning from high
+		to low.
+	]=]
+	sob: boolean,
+
+	--[=[
+		The **Sync**hronise output pin.
+
+		When high, indicates the CPU is currently fetching an opcode.
+	]=]
 	read sync: boolean,
-	--- false = currently reading vector
+
+	--[=[
+		The **V**ector **P**ull output pin.
+
+		When low, indicates an interrupt/vector pin is being addressed.
+	]=]
 	read vpb: boolean,
 
 	-- Hooks
-	write on_error: ErrorHandler?,
+	on_error: ErrorHandler?,
 
 	-- Other State
 	read cycles: number, -- The number of cycles the CPU has used.
+	read _pending_nmi: boolean,
+	read _pending_irq: boolean,
+	read _pending_resb: boolean,
 	read _last_nmi: boolean, -- Edge detection (negative transition)
 	read _last_sob: boolean, -- Edge detection (negative transiton)
 	read _resb_downtime: number, -- Cycles RESB has been held low for
@@ -364,7 +539,7 @@ type Op = { Uop }
 
 local function uopaux_p1_push_value(cpu: _Wdc65c02, value: u8)
 	cpu.address_bus = bit32.bor(STACK_BASE, cpu.s)
-	cpu.s = (cpu.s - 1) % 256
+	cpu.s = (cpu.s - 1) % 0x100
 	cpu.data_bus = value
 	cpu.rwb = false
 end
@@ -375,7 +550,15 @@ local function uopaux_p1_read_value(cpu: _Wdc65c02, address: u16)
 	cpu.rwb = true
 end
 
---- Reusable uops
+local function uopaux_p2_load_bus_to_pc_low(cpu: _Wdc65c02)
+	cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 0, 8)
+end
+
+local function uopaux_p2_load_bus_to_pc_high(cpu: _Wdc65c02)
+	cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 8, 8)
+end
+
+--- Reusable uops/uop generators
 local uops = {
 	--- Fetch the opcode.
 	fetch_op = function(cpu: _Wdc65c02, phi1: boolean)
@@ -384,12 +567,12 @@ local uops = {
 			cpu.rwb = true
 		else
 			cpu.ir = cpu.data_bus
-			cpu.pc += 1
+			cpu.pc = (cpu.pc + 1) % 0x10000
 		end
 	end,
 
-	--- Dummy read.
-	internal_pc = function(cpu: _Wdc65c02, phi1: boolean)
+	--- Dummy read the PC.
+	dummy_read_pc = function(cpu: _Wdc65c02, phi1: boolean)
 		if phi1 then
 			cpu.address_bus = cpu.pc
 			cpu.rwb = true
@@ -422,37 +605,25 @@ local uops = {
 		end
 	end,
 
-	jump_irq_vector_low = function(cpu: _Wdc65c02, phi1: boolean)
-		if phi1 then
-			uopaux_p1_read_value(cpu, VECTOR_IRQB)
-		else
-			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 0, 8)
+	jump_vector_low = function(vector: u16)
+		return function(cpu: _Wdc65c02, phi1: boolean)
+			if phi1 then
+				uopaux_p1_read_value(cpu, vector)
+				cpu.vpb = false
+			else
+				uopaux_p2_load_bus_to_pc_low(cpu)
+			end
 		end
 	end,
 
-	jump_irq_vector_high = function(cpu: _Wdc65c02, phi1: boolean)
-		if phi1 then
-			uopaux_p1_read_value(cpu, VECTOR_IRQB + 1)
-		else
-			cpu.vpb = true
-			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 8, 8)
-		end
-	end,
-
-	jump_reset_vector_low = function(cpu: _Wdc65c02, phi1: boolean)
-		if phi1 then
-			uopaux_p1_read_value(cpu, VECTOR_RESB)
-		else
-			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 0, 8)
-		end
-	end,
-
-	jump_reset_vector_high = function(cpu: _Wdc65c02, phi1: boolean)
-		if phi1 then
-			uopaux_p1_read_value(cpu, VECTOR_RESB + 1)
-		else
-			cpu.vpb = true
-			cpu.pc = bit32.replace(cpu.pc, cpu.data_bus, 8, 8)
+	jump_vector_high = function(vector: u16)
+		return function(cpu: _Wdc65c02, phi1: boolean)
+			if phi1 then
+				uopaux_p1_read_value(cpu, vector)
+				cpu.vpb = false
+			else
+				uopaux_p2_load_bus_to_pc_high(cpu)
+			end
 		end
 	end,
 }
@@ -461,23 +632,32 @@ local ops: { [number]: Op } = table.create(256 + 3, nil :: any) -- extra used fo
 
 --- RESET
 ops[0xFF + 1] = {
-	uops.internal_pc, -- pc
+	uops.dummy_read_pc,
 	uops.reset,
-	uops.internal_pc, -- FIXME: stack
-	uops.internal_pc, -- FIXME: stack - 1
-	uops.jump_reset_vector_low,
-	uops.jump_reset_vector_high,
+	uops.dummy_read_pc, -- FIXME: stack
+	uops.dummy_read_pc, -- FIXME: stack - 1
+	uops.jump_vector_low(VECTOR_RESB),
+	uops.jump_vector_high(VECTOR_RESB),
 }
 
 --- IRQ
 ops[0xFF + 2] = {
-	-- First internal is taken when reset is caught
-	uops.internal_pc,
+	uops.dummy_read_pc,
 	uops.push_return_address_high,
 	uops.push_return_address_low,
 	uops.push_status,
-	uops.jump_irq_vector_low,
-	uops.jump_irq_vector_high,
+	uops.jump_vector_low(VECTOR_IRQB),
+	uops.jump_vector_high(VECTOR_IRQB),
+}
+
+--- NMI
+ops[0xFF + 3] = {
+	uops.dummy_read_pc,
+	uops.push_return_address_high,
+	uops.push_return_address_low,
+	uops.push_status,
+	uops.jump_vector_low(VECTOR_NIMB),
+	uops.jump_vector_high(VECTOR_NIMB),
 }
 
 local wdc65c02 = {}
@@ -489,33 +669,76 @@ local wdc65c02 = {}
 ]=]
 function wdc65c02.tick(cpu: Wdc65c02)
 	local cpu = cpu :: _Wdc65c02
-	-- Check RDY and everything else later
 
 	local phi1 = cpu.phi2o
 	local phi2 = cpu.phi1o
 	cpu.phi1o = phi1
 	cpu.phi2o = phi2
 
-	if cpu.tcu == 0 then
-		uops.fetch_op(cpu, phi1)
+	if not cpu.rdy or not cpu._internal_rdy then
+		cpu.rdy = false -- keep rdy low in the case of _internal_rdy
+
+		-- TODO: handle STP/WAI
+
+		if phi2 then
+			cpu.cycles += 1
+		end
+
 		return
+	end
+
+	if phi2 then -- Tasks to do before PHI2
+		cpu.be = false
+		cpu.cycles += 1
+
+		-- Check Reset
+		if cpu.resb == true then
+			if cpu._last_resb == false and cpu._resb_downtime >= 2 then
+				cpu._pending_resb = true
+			end
+			cpu._resb_downtime = 0
+		else
+			cpu._resb_downtime += 1
+		end
+
+		-- Check NMI
+		if cpu.nmi == false and cpu._last_nmi == true then
+			cpu._pending_nmi = true
+		end
+		cpu._last_nmi = cpu.nmi
+
+		-- Check IRQ
+		cpu._pending_irq = (cpu.irqb == false) and not cpu.i
+
+		-- Check SOB
+		if cpu.sob == false and cpu._last_sob == true then
+			cpu.v = true
+		end
+		cpu._last_sob = cpu.sob
+	else
+		cpu.be = true
 	end
 
 	local op = ops[cpu.ir]
-	local cycle = op[cpu.tcu]
-	cycle(cpu, phi1)
+	local uop = op[cpu.tcu]
 
-	if phi1 then
-		return
-	end
-
-	cpu.cycles += 1
-
-	if cpu.tcu == #op then
-		cpu.tcu = 0
+	if uop then
+		uop(cpu, phi1)
 	else
-		cpu.tcu += 1
+		cpu.tcu = 0
+
+		if cpu._pending_resb then
+			cpu.ir = 0xFF + 1
+		elseif cpu._pending_irq then
+			cpu.ir = 0xFF + 2
+		elseif cpu._pending_nmi then
+			cpu.ir = 0xFF + 3
+		else
+			uops.fetch_op(cpu, phi1)
+		end
 	end
+
+	cpu.tcu += 1
 end
 
 wdc65c02.INSTRUCTIONS = INSTRUCTIONS
